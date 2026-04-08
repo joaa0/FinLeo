@@ -1,21 +1,9 @@
-"""
-FinBot Telegram — Assistente Financeiro com IA
-Suporta dois modos: Menu Completo + Comando Rápido
-"""
-
 import os
 import requests
 import logging
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    ContextTypes,
-    filters,
-)
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -347,7 +335,6 @@ async def send_to_zapier(update: Update, context: ContextTypes.DEFAULT_TYPE):
     payload = {
         "action": "create",
         "user_id": str(update.effective_user.id),
-        "user_name": update.effective_user.first_name,
         "description": expense['description'],
         "amount": expense['amount'],
         "category": expense['category'],
