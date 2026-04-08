@@ -1,1 +1,1 @@
-web: python finbot_telegram.py
+worker: python finbot_telegram.py
