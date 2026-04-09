@@ -1,10 +1,32 @@
+"""
+FinBot Telegram — Assistente Financeiro com IA
+Suporta: CREATE (novo gasto) + READ (histórico)
+Google Sheets integrado para persistência de dados
+"""
+
 import os
 import requests
 import logging
+import json
 from datetime import datetime
+from typing import List, Tuple
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+    filters,
+)
 from dotenv import load_dotenv
+
+# Google Sheets
+try:
+    import gspread
+    from google.oauth2.service_account import Credentials
+except ImportError:
+    print("⚠️ Instale gspread: pip install gspread")
 
 # Load environment variables
 load_dotenv()
@@ -12,6 +34,9 @@ load_dotenv()
 # Configuration
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ZAPIER_WEBHOOK = os.getenv("ZAPIER_WEBHOOK_URL")
+CREDENTIALS_PATH = os.getenv("GOOGLE_CREDENTIALS_PATH", "assistente-financeiro-492800-0a343c503971.json")
+SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "1debpPb-JxXFAPf84rLOZ-HldYbOAYVwHc4B1lPbVTt4")
+SHEET_NAME = "transactions"
 
 # Logging
 logging.basicConfig(
@@ -33,7 +58,7 @@ CATEGORY_MAP = {
     "restaurante": "Alimentação",
     "lanche": "Alimentação",
     "café": "Alimentação",
-    
+
     # Transporte
     "uber": "Transporte",
     "99": "Transporte",
@@ -41,24 +66,24 @@ CATEGORY_MAP = {
     "passagem": "Transporte",
     "combustível": "Transporte",
     "gasolina": "Transporte",
-    
+
     # Entretenimento
     "netflix": "Entretenimento",
     "spotify": "Entretenimento",
     "cinema": "Entretenimento",
     "jogo": "Entretenimento",
-    
+
     # Saúde
     "farmácia": "Saúde",
     "médico": "Saúde",
     "dentista": "Saúde",
     "vitamina": "Saúde",
-    
+
     # Educação
     "curso": "Educação",
     "livro": "Educação",
     "escola": "Educação",
-    
+
     # Compras
     "mercado": "Compras",
     "supermercado": "Compras",
@@ -78,14 +103,85 @@ CATEGORIES = [
 ]
 
 
+# ============================================================================
+# GOOGLE SHEETS INTEGRATION
+# ============================================================================
+
+class GoogleSheetsClient:
+    """Cliente para interagir com Google Sheets"""
+
+    def __init__(self, credentials_path: str, sheet_id: str):
+        self.sheet_id = sheet_id
+        self.credentials_path = credentials_path
+        self.client = None
+        self.spreadsheet = None
+        self.worksheet = None
+        self._connect()
+
+    def _connect(self):
+        """Conecta ao Google Sheets"""
+        try:
+            # Carregar credenciais
+            if not os.path.exists(self.credentials_path):
+                logger.error(f"❌ Arquivo de credenciais não encontrado: {self.credentials_path}")
+                raise FileNotFoundError(f"Credentials file not found: {self.credentials_path}")
+
+            # Autenticar com Service Account
+            credentials = Credentials.from_service_account_file(
+                self.credentials_path,
+                scopes=['https://www.googleapis.com/auth/spreadsheets']
+            )
+
+            self.client = gspread.authorize(credentials)
+            self.spreadsheet = self.client.open_by_key(self.sheet_id)
+            self.worksheet = self.spreadsheet.worksheet(SHEET_NAME)
+
+            logger.info("✅ Conectado ao Google Sheets")
+
+        except Exception as e:
+            logger.error(f"❌ Erro ao conectar Google Sheets: {str(e)}")
+            raise
+
+    def get_user_transactions(self, user_id: str) -> List[dict]:
+        """Busca todas as transações de um usuário"""
+        try:
+            # Pegar todos os dados
+            all_rows = self.worksheet.get_all_records()
+
+            # Filtrar por user_id
+            user_transactions = [
+                row for row in all_rows
+                if str(row.get('user_id', '')).strip() == str(user_id).strip()
+            ]
+
+            logger.info(f"📊 Encontradas {len(user_transactions)} transações para user_id={user_id}")
+            return user_transactions
+
+        except Exception as e:
+            logger.error(f"❌ Erro ao buscar transações: {str(e)}")
+            return []
+
+
+# Inicializar cliente Google Sheets (global)
+try:
+    gs_client = GoogleSheetsClient(CREDENTIALS_PATH, SHEET_ID)
+except Exception as e:
+    logger.warning(f"⚠️ Google Sheets não disponível: {str(e)}")
+    gs_client = None
+
+
+# ============================================================================
+# FUNÇÕES AUXILIARES
+# ============================================================================
+
 def detect_category(text: str) -> str:
     """Detecta categoria por keyword matching"""
     text_lower = text.lower()
-    
+
     for keyword, category in CATEGORY_MAP.items():
         if keyword in text_lower:
             return category
-    
+
     return "Outros"
 
 
@@ -95,50 +191,105 @@ def parse_quick_expense(text: str) -> tuple:
         parts = text.split()
         if len(parts) < 3:
             return None, None, "Formato inválido"
-        
+
         description = parts[1]
         try:
             amount = float(parts[2])
         except ValueError:
             return None, None, "Valor deve ser um número"
-        
+
         return description, amount, None
     except Exception as e:
         return None, None, str(e)
 
 
+def format_transactions(transactions: List[dict], page: int = 1, items_per_page: int = 5) -> Tuple[str, int]:
+    """Formata transações para exibição no Telegram
+
+    Retorna: (texto_formatado, total_de_paginas)
+    """
+    if not transactions:
+        return "📭 Nenhuma transação encontrada.\n\n Comece a registrar seus gastos!", 1
+
+    # Calcular paginação
+    total_pages = (len(transactions) + items_per_page - 1) // items_per_page
+    start_idx = (page - 1) * items_per_page
+    end_idx = start_idx + items_per_page
+
+    page_transactions = transactions[start_idx:end_idx]
+
+    # Cabeçalho
+    header = f"📊 *Suas Transações* (página {page}/{total_pages})\n"
+    header += f"Total: {len(transactions)} registros\n"
+    header += "─" * 40 + "\n\n"
+
+    # Transações formatadas
+    body = ""
+    for i, trans in enumerate(page_transactions, start=start_idx + 1):
+        date = trans.get('date', 'N/A')
+        description = trans.get('description', 'N/A')
+        category = trans.get('category', 'N/A')
+        amount = trans.get('amount', '0')
+        trans_type = trans.get('type', 'expense')
+
+        # Emoji por tipo
+        emoji = "💰" if trans_type == "income" else "💸"
+
+        # Emoji por categoria
+        category_emoji = {
+            "Alimentação": "🍔",
+            "Transporte": "🚕",
+            "Entretenimento": "🎬",
+            "Saúde": "⚕️",
+            "Educação": "📚",
+            "Moradia": "🏠",
+            "Compras": "🛍️",
+            "Outros": "📌"
+        }.get(category, "📌")
+
+        body += f"{emoji} *{description.title()}*\n"
+        body += f"   {category_emoji} {category} | R$ {amount}\n"
+        body += f"   📅 {date}\n\n"
+
+    footer = "─" * 40
+
+    return header + body + footer, total_pages
+
+
+# ============================================================================
+# HANDLERS - CREATE
+# ============================================================================
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Comando /start — Menu principal"""
-    
+
     keyboard = [
         [InlineKeyboardButton("⚡ Novo Gasto", callback_data="new_expense")],
         [InlineKeyboardButton("📊 Histórico", callback_data="history")],
         [InlineKeyboardButton("💰 Relatório", callback_data="report")]
     ]
-    
+
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
+
     welcome_message = (
         "🤖 *Bem-vindo ao FinBot!* 💰\n\n"
         "Escolha uma opção ou digite rapidamente:\n"
         "`/gasto ifood 39`\n\n"
-        "_Registre seus gastos de forma rápida e inteligente!_"
+        "_Registre seus gastos e veja seu histórico!_"
     )
-    
+
     await update.message.reply_text(
         welcome_message,
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
-    
-    return MENU
 
 
 async def quick_expense(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Comando /gasto — Modo rápido"""
-    
+
     description, amount, error = parse_quick_expense(update.message.text)
-    
+
     if error:
         await update.message.reply_text(
             f"❌ {error}\n\n"
@@ -146,10 +297,10 @@ async def quick_expense(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
         return
-    
+
     # Detecta categoria
     category = detect_category(description)
-    
+
     # Armazena para confirmação
     context.user_data['pending_expense'] = {
         'description': description,
@@ -158,34 +309,34 @@ async def quick_expense(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'date': datetime.now().strftime("%Y-%m-%d"),
         'mode': 'quick'
     }
-    
+
     # Mostra preview
     await show_confirmation(update, context)
 
 
 async def show_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Mostra preview com botões de confirmação"""
-    
+
     expense = context.user_data.get('pending_expense')
     if not expense:
         return
-    
+
     keyboard = [
         [
             InlineKeyboardButton("✅ Confirmar", callback_data="confirm_expense"),
             InlineKeyboardButton("✏️ Editar", callback_data="edit_expense")
         ]
     ]
-    
+
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
+
     preview = (
         f"📝 *Descrição:* {expense['description']}\n"
         f"💵 *Valor:* R$ {expense['amount']:.2f}\n"
         f"🏷️ *Categoria:* {expense['category']}\n"
         f"📅 *Data:* {expense['date']}"
     )
-    
+
     if update.message:
         await update.message.reply_text(
             f"Confirmando:\n{preview}",
@@ -200,12 +351,141 @@ async def show_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Processa cliques nos inline buttons"""
-    
+# ============================================================================
+# HANDLERS - READ (HISTÓRICO)
+# ============================================================================
+
+async def show_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Mostra histórico de transações do usuário"""
+
+    user_id = str(update.effective_user.id)
+
+    # Buscar transações no Google Sheets
+    if not gs_client:
+        await update.callback_query.edit_message_text(
+            "❌ Erro: Conexão com Google Sheets não disponível"
+        )
+        return
+
+    transactions = gs_client.get_user_transactions(user_id)
+
+    # Formatar e exibir (página 1)
+    message, total_pages = format_transactions(transactions, page=1)
+
+    # Botões de navegação
+    keyboard = []
+    if total_pages > 1:
+        nav_buttons = []
+        if 1 < total_pages:
+            nav_buttons.append(InlineKeyboardButton("➡️ Próxima", callback_data="history_page_2"))
+        nav_buttons.append(InlineKeyboardButton("⬅️ Voltar", callback_data="back_to_menu"))
+        keyboard.append(nav_buttons)
+    else:
+        keyboard.append([InlineKeyboardButton("⬅️ Voltar", callback_data="back_to_menu")])
+
+    # Armazenar página atual no contexto
+    context.user_data['history_page'] = 1
+    context.user_data['history_transactions'] = transactions
+    context.user_data['history_total_pages'] = total_pages
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.callback_query.edit_message_text(
+        message,
+        reply_markup=reply_markup,
+        parse_mode="Markdown"
+    )
+
+
+async def navigate_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Navega entre páginas do histórico"""
+
     query = update.callback_query
     await query.answer()
-    
+
+    # Extrair número da página do callback_data
+    page = int(query.data.split("_")[-1])
+
+    transactions = context.user_data.get('history_transactions', [])
+    total_pages = context.user_data.get('history_total_pages', 1)
+
+    # Formatar página
+    message, _ = format_transactions(transactions, page=page)
+
+    # Botões de navegação
+    keyboard = []
+    nav_buttons = []
+
+    if page > 1:
+        nav_buttons.append(InlineKeyboardButton("⬅️ Anterior", callback_data=f"history_page_{page - 1}"))
+
+    nav_buttons.append(InlineKeyboardButton(f"📄 {page}/{total_pages}", callback_data="noop"))
+
+    if page < total_pages:
+        nav_buttons.append(InlineKeyboardButton("➡️ Próxima", callback_data=f"history_page_{page + 1}"))
+
+    keyboard.append(nav_buttons)
+    keyboard.append([InlineKeyboardButton("⬅️ Voltar", callback_data="back_to_menu")])
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await query.edit_message_text(
+        message,
+        reply_markup=reply_markup,
+        parse_mode="Markdown"
+    )
+
+
+async def command_historico(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Comando /historico — atalho para histórico"""
+
+    user_id = str(update.effective_user.id)
+
+    if not gs_client:
+        await update.message.reply_text(
+            "❌ Erro: Conexão com Google Sheets não disponível"
+        )
+        return
+
+    transactions = gs_client.get_user_transactions(user_id)
+
+    # Formatar e exibir
+    message, total_pages = format_transactions(transactions, page=1)
+
+    # Botões de navegação
+    keyboard = []
+    if total_pages > 1:
+        nav_buttons = []
+        if 1 < total_pages:
+            nav_buttons.append(InlineKeyboardButton("➡️ Próxima", callback_data="history_page_2"))
+        keyboard.append(nav_buttons)
+
+    keyboard.append([InlineKeyboardButton("🏠 Menu", callback_data="back_to_menu")])
+
+    # Armazenar contexto
+    context.user_data['history_page'] = 1
+    context.user_data['history_transactions'] = transactions
+    context.user_data['history_total_pages'] = total_pages
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(
+        message,
+        reply_markup=reply_markup,
+        parse_mode="Markdown"
+    )
+
+
+# ============================================================================
+# HANDLERS - BUTTONS
+# ============================================================================
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Processa cliques nos inline buttons"""
+
+    query = update.callback_query
+    await query.answer()
+
     if query.data == "new_expense":
         context.user_data['state'] = AWAITING_EXPENSE
         await query.edit_message_text(
@@ -213,21 +493,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Exemplo: `ifood 39` ou `uber 25`",
             parse_mode="Markdown"
         )
-        return AWAITING_EXPENSE
-    
+
     elif query.data == "history":
-        await query.edit_message_text(
-            "📊 *Histórico:*\n\n"
-            "Funcionalidade em desenvolvimento...\n"
-            "(Integrando com Google Sheets)",
-            parse_mode="Markdown"
-        )
-        
-        keyboard = [[InlineKeyboardButton("⬅️ Voltar", callback_data="back_to_menu")]]
-        await query.edit_message_reply_markup(
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-    
+        await show_history(update, context)
+
+    elif query.data.startswith("history_page_"):
+        await navigate_history(update, context)
+
+    elif query.data == "noop":
+        # Botão inerte (apenas para mostrar página)
+        pass
+
     elif query.data == "report":
         await query.edit_message_text(
             "💰 *Relatório Mensal:*\n\n"
@@ -235,12 +511,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "(Integrando com Google Sheets)",
             parse_mode="Markdown"
         )
-        
+
         keyboard = [[InlineKeyboardButton("⬅️ Voltar", callback_data="back_to_menu")]]
         await query.edit_message_reply_markup(
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-    
+
     elif query.data == "back_to_menu":
         keyboard = [
             [InlineKeyboardButton("⚡ Novo Gasto", callback_data="new_expense")],
@@ -252,10 +528,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
-    
+
     elif query.data == "confirm_expense":
         await send_to_zapier(update, context)
-    
+
     elif query.data == "edit_expense":
         await query.edit_message_text(
             "Qual campo deseja editar?\n"
@@ -266,17 +542,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Processa mensagens de entrada"""
-    
+
     text = update.message.text
-    
+
     # Modo rápido
     if text.startswith("/gasto"):
         await quick_expense(update, context)
         return
-    
+
     # Modo menu completo
     if context.user_data.get('state') == AWAITING_EXPENSE:
-        # Adiciona o /gasto para parsear a mensagem como quick_expense
         description, amount, error = parse_quick_expense("/gasto " + text)
         if error:
             await update.message.reply_text(
@@ -284,10 +559,9 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="Markdown"
             )
             return
-        
+
         category = detect_category(description)
-        
-        # Salva para confirmação
+
         context.user_data['pending_expense'] = {
             'description': description,
             'amount': amount,
@@ -295,10 +569,10 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'date': datetime.now().strftime("%Y-%m-%d"),
             'mode': 'menu'
         }
-        
+
         await show_confirmation(update, context)
         return
-    
+
     # Editando gasto
     if 'pending_expense' in context.user_data:
         text = update.message.text
@@ -310,28 +584,28 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 context.user_data['pending_expense']['description'] = description
                 context.user_data['pending_expense']['amount'] = amount
                 context.user_data['pending_expense']['category'] = detect_category(description)
-                
+
                 await show_confirmation(update, context)
                 return
             except ValueError:
                 pass
-        
+
         context.user_data['pending_expense']['description'] = text
         context.user_data['pending_expense']['category'] = detect_category(text)
-        
+
         await show_confirmation(update, context)
 
 
 async def send_to_zapier(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Envia gasto para Zapier"""
-    
+
     query = update.callback_query
     expense = context.user_data.get('pending_expense')
-    
+
     if not expense:
         await query.edit_message_text("❌ Erro: Nenhum gasto pendente")
         return
-    
+
     payload = {
         "action": "create",
         "user_id": str(update.effective_user.id),
@@ -346,12 +620,12 @@ async def send_to_zapier(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "_source": "telegram_bot",
         "_timestamp": datetime.now().isoformat()
     }
-    
+
     try:
         logger.info(f"Enviando para Zapier: {payload}")
-        
+
         response = requests.post(ZAPIER_WEBHOOK, json=payload, timeout=10)
-        
+
         if response.status_code == 200:
             await query.edit_message_text(
                 "✅ *Gasto registrado com sucesso!*\n\n"
@@ -361,14 +635,14 @@ async def send_to_zapier(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"📅 {expense['date']}",
                 parse_mode="Markdown"
             )
-            
+
             logger.info(f"Gasto registrado: {expense}")
         else:
             logger.error(f"Erro Zapier: {response.status_code} - {response.text}")
             await query.edit_message_text(
                 f"❌ Erro ao registrar (status {response.status_code})"
             )
-    
+
     except requests.exceptions.Timeout:
         await query.edit_message_text(
             "⚠️ Webhook timeout. Tente novamente."
@@ -378,7 +652,7 @@ async def send_to_zapier(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             f"❌ Erro: {str(e)}"
         )
-    
+
     finally:
         context.user_data.pop('pending_expense', None)
         context.user_data.pop('state', None)
@@ -386,24 +660,28 @@ async def send_to_zapier(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     """Inicializa e roda o bot"""
-    
+
     if not TELEGRAM_TOKEN:
         raise ValueError("TELEGRAM_BOT_TOKEN não configurado!")
-    
+
     if not ZAPIER_WEBHOOK:
-        logger.warning("ZAPIER_WEBHOOK_URL não configurado. Teste localmente sem envio.")
-    
+        logger.warning("ZAPIER_WEBHOOK_URL não configurado. CREATE desativado.")
+
+    if not gs_client:
+        logger.warning("Google Sheets não conectado. READ desativado.")
+
     # Criar aplicação
     app = Application.builder().token(TELEGRAM_TOKEN).build()
-    
+
     # Handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("gasto", quick_expense))
+    app.add_handler(CommandHandler("historico", command_historico))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
     app.add_handler(CallbackQueryHandler(button_handler))
-    
-    logger.info("FinBot iniciando...")
-    
+
+    logger.info("✅ FinBot iniciando...")
+
     # Polling
     app.run_polling()
 
