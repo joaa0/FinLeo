@@ -92,13 +92,13 @@ class GoogleSheetsClient:
         self.worksheet = None
         self._connect()
 
-def _connect(self):
+    def _connect(self):
     """Conecta ao Google Sheets — suporta JSON string (Railway) ou arquivo local"""
-    try:
-        scopes = ['https://www.googleapis.com/auth/spreadsheets']
+        try:
+            scopes = ['https://www.googleapis.com/auth/spreadsheets']
 
-        # Prioridade 1: variável de ambiente com conteúdo JSON (Railway)
-        credentials_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
+            # Prioridade 1: variável de ambiente com conteúdo JSON (Railway)
+            credentials_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
         if credentials_json:
             logger.info("🔑 Usando credenciais via GOOGLE_CREDENTIALS_JSON")
             try:
