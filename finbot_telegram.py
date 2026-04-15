@@ -184,6 +184,72 @@ class GoogleSheetsClient:
             logger.error(f"❌ Erro ao buscar transações: {str(e)}")
             return []
 
+    def get_user_salary(self, user_id: str) -> float:
+        """
+        Busca o salário atual do usuário na aba 'users'.
+        Lê da coluna D (índice 4).
+        Estrutura da aba: user_id | email | registered_date | salary | updated_at
+        Retorna 0.0 se não encontrado. """
+        try:
+            worksheet = self.spreadsheet.worksheet(SHEET_USERS)
+            cell = worksheet.find(str(user_id), in_column=1)
+            if cell:
+                value = worksheet.cell(cell.row, 4).value  # coluna D = salary
+                return float(str(value).replace(",", ".")) if value else 0.0
+            return 0.0
+        except Exception:
+            return 0.0
+        except Exception as e:
+            logger.error(f"❌ Erro ao buscar salário: {str(e)}")
+            return 0.0
+
+    def update_user_salary(self, user_id: str, salary: float):
+        """
+        Cria ou atualiza o salário do usuário na aba 'users'.
+        Estrutura preservada: user_id | email | registered_date | salary | updated_at
+        - Usuário existente: atualiza apenas col D (salary) e col E (updated_at)
+        - Usuário novo: append com user_id na A, email/registered_date vazios, salary na D
+        """
+        try:
+            worksheet = self.spreadsheet.worksheet(SHEET_USERS)
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            try:
+                cell = worksheet.find(str(user_id), in_column=1)
+                # Atualiza só salary (col D=4) e updated_at (col E=5)
+                worksheet.update_cell(cell.row, 4, salary)
+                worksheet.update_cell(cell.row, 5, now)
+            except Exception:
+                # Novo usuário: deixa email e registered_date vazios (col B e C)
+                worksheet.append_row([str(user_id), "", "", salary, now])
+            logger.info(f"✅ Salário atualizado para user_id={user_id}: R$ {salary:.2f}")
+        except Exception as e:
+            logger.error(f"❌ Erro ao salvar salário: {str(e)}")
+            raise  # Propaga para o handler tratar
+
+    def get_monthly_expenses(self, user_id: str) -> float:
+        """
+        Soma despesas do mês atual do usuário na aba 'transactions'.
+        Filtra type == 'expense' e date começa com YYYY-MM do mês atual.
+        """
+        mes_atual = datetime.now().strftime("%Y-%m")
+        total = 0.0
+        try:
+            all_rows = self.worksheet.get_all_records()
+            for row in all_rows:
+                row_user = str(row.get('user_id', '')).strip()
+                row_type = str(row.get('type', '')).lower().strip()
+                row_date = str(row.get('date', ''))
+                row_amount = row.get('amount', 0)
+
+                if row_user == str(user_id) and row_type == 'expense' and row_date.startswith(mes_atual):
+                    try:
+                        total += float(str(row_amount).replace(',', '.'))
+                    except (ValueError, TypeError):
+                        pass
+        except Exception as e:
+            logger.error(f"❌ Erro ao calcular despesas mensais: {str(e)}")
+        return total
+
 
 # Inicializar cliente Google Sheets (global)
 try:
