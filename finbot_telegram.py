@@ -185,23 +185,22 @@ class GoogleSheetsClient:
             return []
 
     def get_user_salary(self, user_id: str) -> float:
-        """
-        Busca o salário atual do usuário na aba 'users'.
-        Lê da coluna D (índice 4).
-        Estrutura da aba: user_id | email | registered_date | salary | updated_at
-        Retorna 0.0 se não encontrado. """
-        try:
-            worksheet = self.spreadsheet.worksheet(SHEET_USERS)
-            cell = worksheet.find(str(user_id), in_column=1)
-            if cell:
-                value = worksheet.cell(cell.row, 4).value  # coluna D = salary
-                return float(str(value).replace(",", ".")) if value else 0.0
-            return 0.0
-        except Exception:
-            return 0.0
-        except Exception as e:
-            logger.error(f"❌ Erro ao buscar salário: {str(e)}")
-            return 0.0
+    """
+    Busca o salário atual do usuário na aba 'users'.
+    Lê da coluna D (índice 4).
+    Estrutura da aba: user_id | email | registered_date | salary | updated_at
+    Retorna 0.0 se não encontrado.
+    """
+    try:
+        worksheet = self.spreadsheet.worksheet(SHEET_USERS)
+        cell = worksheet.find(str(user_id), in_column=1)
+        if cell:
+            value = worksheet.cell(cell.row, 4).value  # coluna D = salary
+            return float(str(value).replace(",", ".")) if value else 0.0
+        return 0.0
+    except Exception as e:
+        logger.error(f"❌ Erro ao buscar salário: {str(e)}")
+        return 0.0
 
     def update_user_salary(self, user_id: str, salary: float):
         """
