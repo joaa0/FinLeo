@@ -29,10 +29,10 @@ Assistente financeiro com IA integrado ao Telegram. Suporta dois modos de entrad
 mkdir finbot && cd finbot
 
 # Copie os arquivos Python
-cp finbot_telegram.py telegram_bot_spec.md requirements.txt .env.example .
+cp finbot_telegram.py telegram_bot_spec.md requirements.txt .env .
 
 # Crie um .env real
-cp .env.example .env
+cp .env .env
 
 # Edite .env com seus valores
 nano .env
