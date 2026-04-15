@@ -92,24 +92,53 @@ class GoogleSheetsClient:
         self.worksheet = None
         self._connect()
 
-    def _connect(self):
-        """Conecta ao Google Sheets"""
-        try:
-            if not os.path.exists(self.credentials_path):
-                raise FileNotFoundError(f"Credentials file not found: {self.credentials_path}")
+def _connect(self):
+    """Conecta ao Google Sheets — suporta JSON string (Railway) ou arquivo local"""
+    try:
+        scopes = ['https://www.googleapis.com/auth/spreadsheets']
 
+        # Prioridade 1: variável de ambiente com conteúdo JSON (Railway)
+        credentials_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
+        if credentials_json:
+            logger.info("🔑 Usando credenciais via GOOGLE_CREDENTIALS_JSON")
+            try:
+                credentials_dict = json.loads(credentials_json)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"GOOGLE_CREDENTIALS_JSON inválido (erro de JSON): {e}")
+
+            credentials = Credentials.from_service_account_info(
+                credentials_dict,
+                scopes=scopes
+            )
+
+        # Prioridade 2: arquivo local (desenvolvimento)
+        elif self.credentials_path:
+            logger.info(f"🔑 Usando credenciais via arquivo: {self.credentials_path}")
+            if not os.path.exists(self.credentials_path):
+                raise FileNotFoundError(
+                    f"Arquivo de credenciais não encontrado: {self.credentials_path}\n"
+                    "Configure GOOGLE_CREDENTIALS_JSON ou verifique o path."
+                )
             credentials = Credentials.from_service_account_file(
                 self.credentials_path,
-                scopes=['https://www.googleapis.com/auth/spreadsheets']
+                scopes=scopes
             )
-            self.client = gspread.authorize(credentials)
-            self.spreadsheet = self.client.open_by_key(self.sheet_id)
-            self.worksheet = self.spreadsheet.worksheet(SHEET_NAME)
-            logger.info("✅ Conectado ao Google Sheets")
 
-        except Exception as e:
-            logger.error(f"❌ Erro ao conectar Google Sheets: {str(e)}")
-            raise
+        else:
+            raise ValueError(
+                "Nenhuma credencial configurada.\n"
+                "Defina GOOGLE_CREDENTIALS_JSON ou GOOGLE_CREDENTIALS_PATH no .env"
+            )
+
+        self.client = gspread.authorize(credentials)
+        self.spreadsheet = self.client.open_by_key(self.sheet_id)
+        self.worksheet = self.spreadsheet.worksheet(SHEET_NAME)
+
+        logger.info("✅ Conectado ao Google Sheets")
+
+    except Exception as e:
+        logger.error(f"❌ Erro ao conectar Google Sheets: {str(e)}")
+        raise
 
     def get_user_transactions(self, user_id: str) -> List[dict]:
         """Busca todas as transações de um usuário"""
