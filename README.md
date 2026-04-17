@@ -19,7 +19,7 @@
 | 💵 **Salário** | Registra o salário mensal e exibe o saldo disponível em tempo real |
 | 💰 **Relatório** | *(em desenvolvimento)* Resumo mensal por categoria via e-mail |
 | 🏷️ **Auto-categoria** | Detecta a categoria automaticamente pela descrição do gasto |
-| 🤖 **Normalização por IA** | Claude (via Zapier) valida e normaliza os dados antes de salvar |
+| 🤖 **Normalização por IA** | MistralAI (via Zapier) valida e normaliza os dados antes de salvar |
 
 ---
 
@@ -28,7 +28,7 @@
 ```
 Telegram Bot (Python)
        │
-       ├── CREATE ──► Zapier Zap 1 ──► Claude AI ──► Google Sheets (transactions)
+       ├── CREATE ──► Zapier Zap 1 ──► Mistral AI ──► Google Sheets (transactions)
        │
        ├── READ ────► Google Sheets (transactions) — leitura direta via gspread
        │
@@ -41,7 +41,7 @@ O bot tem **duas camadas**:
 - **Backend (Zapier):** processa os dados, aplica IA para normalização e persiste no Google Sheets
 
 ### Zap 1 — CRUD de Transações
-Recebe o payload do bot → normaliza com Python → valida com Claude AI → insere/atualiza/deleta no Sheets → notifica via Telegram e e-mail.
+Recebe o payload do bot → normaliza com Python → valida com Mistral AI → insere/atualiza/deleta no Sheets → notifica via Telegram e e-mail.
 
 ### Zap 2 — Salário
 Recebe `user_id` + valor do salário → salva/atualiza na aba `users` do Sheets.
