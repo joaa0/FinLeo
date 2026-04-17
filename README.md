@@ -1,6 +1,6 @@
 # 🤖 FinBot — Assistente Financeiro no Telegram
 
-> Registre gastos, acompanhe seu histórico e controle seu saldo mensal direto no Telegram — com IA e Google Sheets como banco de dados.
+> Registre registros, acompanhe seu histórico e controle seu saldo mensal direto no Telegram — com IA e Google Sheets como banco de dados.
 
 ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat&logo=python&logoColor=white)
 ![Telegram](https://img.shields.io/badge/Telegram-Bot-26A5E4?style=flat&logo=telegram&logoColor=white)
@@ -14,11 +14,11 @@
 
 | Feature | Descrição |
 |---|---|
-| ⚡ **Novo Gasto** | Registra uma transação via menu ou comando rápido `/gasto` |
+| ⚡ **Novo Registro** | Registra uma transação via menu ou comando rápido `/registro` |
 | 📊 **Histórico** | Lista transações com paginação, direto do Google Sheets |
 | 💵 **Salário** | Registra o salário mensal e exibe o saldo disponível em tempo real |
 | 💰 **Relatório** | *(em desenvolvimento)* Resumo mensal por categoria via e-mail |
-| 🏷️ **Auto-categoria** | Detecta a categoria automaticamente pela descrição do gasto |
+| 🏷️ **Auto-categoria** | Detecta a categoria automaticamente pela descrição do registro |
 | 🤖 **Normalização por IA** | MistralAI (via Zapier) valida e normaliza os dados antes de salvar |
 
 ---
@@ -57,7 +57,7 @@ Recebe `user_id` + valor do salário → salva/atualiza na aba `users` do Sheets
 | `id` | string | `{user_id}_{timestamp}` |
 | `user_id` | string | ID numérico do Telegram |
 | `date` | date | Data da transação (YYYY-MM-DD) |
-| `description` | string | Descrição do gasto |
+| `description` | string | Descrição do registro |
 | `category` | string | Categoria detectada automaticamente |
 | `amount` | float | Valor em R$ |
 | `type` | string | `expense` ou `income` |
@@ -144,8 +144,8 @@ python finbot_telegram.py
 ### Modo rápido (comando direto)
 
 ```
-/gasto ifood 39
-/gasto uber 25.50
+/registro ifood 39
+/registro freelance 250
 /historico
 /salario
 ```
@@ -154,7 +154,7 @@ python finbot_telegram.py
 
 Digite `/start` e use os botões inline para navegar entre as opções.
 
-### Exemplos de gastos reconhecidos automaticamente
+### Exemplos de registros reconhecidos automaticamente
 
 | Você digita | Categoria detectada |
 |---|---|
@@ -206,9 +206,7 @@ finbot/
 
 - [ ] Relatório mensal completo (receitas, despesas, saldo, categorias)
 - [ ] Comando `/deletar` para remover transações pelo bot
-- [ ] Comando `/editar` para corrigir transações
-- [ ] Suporte a receitas (`/renda salário 3500`)
-- [ ] Gráfico mensal de gastos por categoria
+- [ ] Gráfico mensal de registros por categoria
 - [ ] Alertas automáticos quando o saldo ficar abaixo de um limite
 
 ---
@@ -220,7 +218,7 @@ MIT License — veja o arquivo [LICENSE](LICENSE) para detalhes.
 
 Assistente financeiro com IA integrado ao Telegram. Suporta dois modos de entrada:
 - **Menu Completo** (`/start`) — Interface visual com botões
-- **Modo Rápido** (`/gasto ifood 39`) — Comando direto
+- **Modo Rápido** (`/registro ifood 39`) — Comando direto
 
 ---
 
@@ -285,9 +283,9 @@ Você verá: `FinBot iniciando...`
 ```
 /start
      ↓
-[⚡ Novo Gasto] [📊 Histórico] [💰 Relatório]
+[⚡ Novo Registro] [📊 Histórico] [💰 Relatório]
      ↓
-Clique em "Novo Gasto"
+Clique em "Novo Registro"
      ↓
 Digite: "ifood 39"
      ↓
@@ -299,13 +297,13 @@ Bot envia para Zapier → Google Sheets
 ### Modo 2: Comando Rápido
 
 ```
-/gasto ifood 39
+/registro ifood 39
      ↓
 Bot mostra preview
      ↓
 [✅ Confirmar] [✏️ Editar]
      ↓
-Pronto! Gasto registrado
+Pronto! registro registrado
 ```
 
 ---
@@ -346,7 +344,7 @@ G: Hora
 
 ## 📊 Estrutura do Payload (Zapier)
 
-Cada gasto enviado é um JSON assim:
+Cada registro enviado é um JSON assim:
 
 ```json
 {
@@ -370,13 +368,13 @@ O bot detecta automaticamente:
 
 | Palavra-chave | Categoria |
 |---|---|
-| ifood, uber eats, pizza | Alimentação |
-| uber, 99, taxi | Transporte |
-| netflix, spotify, cinema | Entretenimento |
-| farmácia, médico | Saúde |
-| mercado, supermercado | Compras |
-| curso, livro | Educação |
-
+| ifood, uber eats, pizza -> Alimentação |
+| uber, 99, taxi, gasolina -> Transporte |
+| netflix, spotify, cinema -> Entretenimento |
+| farmácia, médico, remédio -> Saúde |
+| mercado, supermercado -> Compras |
+| curso, livro, escola -> Educação |
+| venda, freelance, bônus -> Trabalho | 
 **Se não detectar, usa:** "Outros"
 
 ---
@@ -451,17 +449,17 @@ git push heroku main
 
 ### MVP (Agora)
 - ✅ Menu principal
-- ✅ Comando `/gasto`
+- ✅ Comando `/registro`
 - ✅ Detecção de categoria
 - ✅ Envio para Zapier
 
 ### Fase 2 (Próximas 2 semanas)
-- Histórico de gastos (com paginação)
+- Histórico de registros (com paginação)
 - Relatório mensal simples
 - Edição de transações existentes
 
 ### Fase 3 (Futuro)
-- Gráficos de gastos (plotly/matplotlib)
+- Gráficos de registros (plotly/matplotlib)
 - Alertas de limite
 - Web App integrado
 - Multi-idioma (EN/PT/ES)
@@ -490,7 +488,7 @@ Busque por `await query.edit_message_text` e customize o texto.
 
 ```python
 keyboard = [
-    [InlineKeyboardButton("📈 Meta de Gastos", callback_data="budget")],
+    [InlineKeyboardButton("📈 Meta de registros", callback_data="budget")],
     [InlineKeyboardButton("🔄 Últimos 7 dias", callback_data="week")],
 ]
 ```
