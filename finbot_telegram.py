@@ -33,7 +33,8 @@ load_dotenv()
 
 # Configuration
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-ZAPIER_WEBHOOK = os.getenv("ZAPIER_WEBHOOK_URL")
+ZAPIER_WEBHOOK_EXPENSE = os.getenv("ZAPIER_WEBHOOK_EXPENSE")
+ZAPIER_WEBHOOK_SALARY = os.getenv("ZAPIER_WEBHOOK_SALARY")
 CREDENTIALS_PATH = os.getenv("GOOGLE_CREDENTIALS_PATH", "")
 SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "")
 SHEET_NAME = os.getenv("SHEET_NAME", "transactions")
@@ -203,6 +204,7 @@ class GoogleSheetsClient:
 
     def update_user_salary(self, user_id: str, salary: float):
         """
+<<<<<<< HEAD
         Cria ou atualiza o salário do usuário na aba 'users'.
         Estrutura: user_id | email | registered_date | salary | updated_at
         - Usuário existente: atualiza col D (salary) e col E (updated_at)
@@ -226,6 +228,12 @@ class GoogleSheetsClient:
         except Exception as e:
             logger.error(f"❌ Erro ao salvar salário: {str(e)}")
             raise
+
+#   DESATIVADO - salário agora é gerenciado pelo ZAP 2.
+#  Mantido apenas para evitar quebra de referências futuras.
+
+        logger.warning("⚠️ update_user_salary foi desativado (ZAP 2 responsável pelo salário)")
+        return
 
     def get_monthly_expenses(self, user_id: str) -> float:
         """
@@ -443,6 +451,7 @@ async def send_to_zapier(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         logger.info(f"Enviando para Zapier: {payload}")
         response = requests.post(ZAPIER_WEBHOOK, json=payload, timeout=10)
+        response = requests.post(ZAPIER_WEBHOOK_EXPENSE, json=payload, timeout=10)
 
         if response.status_code == 200:
             await query.edit_message_text(
@@ -578,6 +587,8 @@ async def show_salary_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     balance = salary - expenses
 
     # Monta mensagem com situação atual
+    balance = salary - expenses  # 🔥 FALTAVA ISSO
+
     if salary > 0:
         balance_emoji = "🟢" if balance >= 0 else "🔴"
         message = (
@@ -642,6 +653,16 @@ async def command_salario(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"{balance_emoji} Saldo disponível: R$ {balance:.2f}\n\n"
             f"_Deseja atualizar o valor?_"
         )
+    balance = salary - expenses  # 🔥 FALTAV
+
+    if salary > 0:
+        message = (
+            f"💵 *Seu Salário*\n\n"
+            f"💰 Salário registrado: R$ {salary:.2f}\n"
+            f"💸 Gastos este mês: R$ {expenses:.2f}\n\n"
+            f"📊 _O salário agora é gerenciado automaticamente pelo sistema (Zap 2)._"
+    )
+
     else:
         message = (
             "💵 *Salário não registrado ainda.*\n\n"
@@ -676,7 +697,16 @@ async def process_salary_input(update: Update, context: ContextTypes.DEFAULT_TYP
             parse_mode="Markdown"
         )
         return
-
+    text = update.message.text.strip().replace(",", ".")
+    try:
+        salary = float(text)
+        if salary < 0:
+            raise ValueError()
+    except ValueError:
+            await update.message.reply_text(
+            "❌ Digite um número válido.\nEx: 3500 ou 4750.50"
+        )
+            return
     user_id = str(update.effective_user.id)
 
     if not gs_client:
@@ -709,6 +739,34 @@ async def process_salary_input(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         context.user_data.pop('state', None)
 
+        await update.message.reply_text("❌ Google Sheets não conectado")
+        return
+
+    try:
+        response = send_salary_to_zapier(user_id, salary)
+        if response.status_code != 200:
+            await update.message.reply_text("❌ Erro ao enviar salário para o Zap")
+            return
+
+        context.user_data.pop('state', None)
+
+        await update.message.reply_text(
+            f"✅ Salário atualizado!\n\n💰 R$ {salary:.2f}"
+        )
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ Erro: {str(e)}")
+
+def send_salary_to_zapier(user_id: str, salary: float):
+    payload = {
+        "action": "update_salary",
+        "user_id": user_id,
+        "salary": salary,
+        "_source": "telegram_bot",
+        "_timestamp": datetime.now().isoformat()
+    }
+
+    return requests.post(ZAPIER_WEBHOOK_SALARY, json=payload, timeout=10)
 
 # ============================================================================
 # HANDLERS - BUTTONS (roteador central)
@@ -748,6 +806,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_salary_menu(update, context)
 
     elif query.data == "salary_set":
+
+        context.user_data['state'] = AWAITING_SALARY
         await salary_ask_value(update, context)
 
     elif query.data == "back_to_menu":
@@ -783,6 +843,11 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     state = context.user_data.get('state')
 
     # Estado: aguardando salário
+
+    text = update.message.text
+    state = context.user_data.get('state')
+
+    # SALÁRIO (prioridade máxima)
     if state == AWAITING_SALARY:
         await process_salary_input(update, context)
         return
@@ -811,8 +876,8 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         await show_confirmation(update, context)
         return
-
     # Estado: editando gasto pendente
+    # fallback: edição de gasto
     if 'pending_expense' in context.user_data:
         parts = text.split()
         if len(parts) >= 2:
@@ -841,8 +906,11 @@ def main():
     if not TELEGRAM_TOKEN:
         raise ValueError("TELEGRAM_BOT_TOKEN não configurado!")
 
-    if not ZAPIER_WEBHOOK:
+    if not ZAPIER_WEBHOOK_EXPENSE:
         logger.warning("ZAPIER_WEBHOOK_URL não configurado. CREATE desativado.")
+
+    if not ZAPIER_WEBHOOK_EXPENSE:
+        logger.warning("ZAPIER_WEBHOOK_EXPENSE não configurado. CREATE desativado.")
 
     if not gs_client:
         logger.warning("Google Sheets não conectado. READ e SALÁRIO desativados.")
