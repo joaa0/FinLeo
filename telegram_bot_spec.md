@@ -14,7 +14,7 @@ FinBot é um assistente financeiro pessoal via Telegram que permite registrar e 
 
 ## 2. Componentes do Sistema
 
-### 2.1 Bot Telegram (`bot.py`)
+### 2.1 Bot Telegram (`finbot_telegram.py`)
 
 Responsável por toda a interface com o usuário. Gerencia estados de conversa, roteamento de mensagens e chamadas às APIs externas.
 
@@ -115,24 +115,24 @@ Atua como banco de dados relacional simplificado. Cada aba é tratada como uma t
 
 ```
 Usuário digita "ifood 39" no Telegram
-    → bot.py: parse_quick_expense() extrai descrição e valor
-    → bot.py: detect_category() detecta categoria por keyword
-    → bot.py: show_confirmation() exibe preview
+    → finbot_telegram.py: parse_quick_expense() extrai descrição e valor
+    → finbot_telegram.py: detect_category() detecta categoria por keyword
+    → finbot_telegram.py: show_confirmation() exibe preview
     → Usuário confirma
-    → bot.py: send_expense_to_zapier() envia POST para ZAPIER_WEBHOOK_EXPENSE
+    → finbot_telegram.py: send_expense_to_zapier() envia POST para ZAPIER_WEBHOOK_EXPENSE
     → Zap 1: Python normaliza + Claude valida
     → Zap 1: insere linha na aba transactions
-    → bot.py: exibe confirmação de sucesso
+    → finbot_telegram.py: exibe confirmação de sucesso
 ```
 
 ### 3.2 READ — Ver Histórico
 
 ```
 Usuário clica em "📊 Histórico"
-    → bot.py: show_history() chama gs_client.get_user_transactions(user_id)
+    → finbot_telegram.py: show_history() chama gs_client.get_user_transactions(user_id)
     → gspread: lê todas as linhas da aba transactions
-    → bot.py: filtra por user_id
-    → bot.py: format_transactions() pagina e formata
+    → finbot_telegram.py: filtra por user_id
+    → finbot_telegram.py: format_transactions() pagina e formata
     → Telegram: exibe lista com navegação
 ```
 
@@ -140,14 +140,14 @@ Usuário clica em "📊 Histórico"
 
 ```
 Usuário clica em "💵 Meu Salário"
-    → bot.py: show_salary_menu() lê salary + expenses do Sheets
+    → finbot_telegram.py: show_salary_menu() lê salary + expenses do Sheets
     → Exibe: salário, gastos do mês, saldo disponível
     → Usuário clica "✏️ Registrar / Atualizar"
-    → bot.py: state = AWAITING_SALARY
+    → finbot_telegram.py: state = AWAITING_SALARY
     → Usuário digita o valor
-    → bot.py: process_salary_input() valida e envia POST para ZAPIER_WEBHOOK_SALARY
+    → finbot_telegram.py: process_salary_input() valida e envia POST para ZAPIER_WEBHOOK_SALARY
     → Zap 2: cria ou atualiza linha na aba users
-    → bot.py: exibe confirmação
+    → finbot_telegram.py: exibe confirmação
 ```
 
 ---
