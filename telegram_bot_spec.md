@@ -1,550 +1,271 @@
-# FinBot Telegram Assistant — Especificação Técnica
+# FinBot — Especificação Técnica
 
-**Projeto:** Assistente financeiro com IA integrado ao Telegram  
-**Status:** Design aprovado (Dual-mode interface)  
-**Data:** Abril 2025
+> Documento de referência para desenvolvimento, manutenção e extensão do sistema.
 
 ---
 
-## 1. Visão Geral da Arquitetura
+## 1. Visão Geral
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                   TELEGRAM BOT (Trigger)                     │
-├─────────────────────────────────────────────────────────────┤
-│  • Menu Principal (Inline Buttons)                           │
-│  • Modo Rápido: /gasto <descrição> <valor>                 │
-│  • Modo Completo: [Novo Gasto] → Entrada → Seleção → OK   │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-                           ↓
-┌─────────────────────────────────────────────────────────────┐
-│                      ZAPIER WEBHOOK                          │
-├─────────────────────────────────────────────────────────────┤
-│  • Recebe JSON estruturado do bot                           │
-│  • Passa para Google Generative AI (classificação)          │
-│  • Envia para Google Sheets                                 │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-                           ↓
-┌─────────────────────────────────────────────────────────────┐
-│                    GOOGLE SHEETS                             │
-├─────────────────────────────────────────────────────────────┤
-│  Data | Descrição | Valor | Categoria | Tipo | Usuário      │
-└─────────────────────────────────────────────────────────────┘
-```
+FinBot é um assistente financeiro pessoal via Telegram que permite registrar e consultar transações financeiras usando linguagem natural. O sistema combina um bot Python com workflows de automação no Zapier e Google Sheets como camada de persistência.
+
+**Objetivo principal:** permitir que o usuário registre um gasto em menos de 10 segundos, sem abrir planilhas ou apps externos.
 
 ---
 
-## 2. Fluxo de Interação — Opção A (Menu Completo)
+## 2. Componentes do Sistema
 
-### 2.1 First-Time User
+### 2.1 Bot Telegram (`bot.py`)
 
-```
-Bot: "Bem-vindo ao FinBot! 💰"
-     [⚡ Novo Gasto] [📊 Histórico] [💰 Relatório]
-     
-     OU digite: /gasto ifood 39
+Responsável por toda a interface com o usuário. Gerencia estados de conversa, roteamento de mensagens e chamadas às APIs externas.
 
-Usuário clica: [⚡ Novo Gasto]
-Bot: "Qual foi o gasto? (ex: ifood 39 reais)"
+**Tecnologia:** Python 3.10+ com `python-telegram-bot` v20+
 
-Usuário: "ifood 39"
-Bot: "Confirmando:
-     📝 Descrição: ifood
-     💵 Valor: R$ 39,00
-     
-     Categoria sugerida: [Alimentação] [Transporte] [Outro]"
+**Responsabilidades:**
+- Receber e processar mensagens e cliques de botões
+- Manter estado de conversa por usuário via `context.user_data`
+- Ler transações e salário diretamente do Google Sheets via `gspread`
+- Enviar payloads para os dois webhooks do Zapier
 
-Usuário clica: [Alimentação]
-Bot: "✅ Gasto registrado!
-     Data: 02/04/2025
-     Descrição: ifood
-     Valor: R$ 39,00
-     Categoria: Alimentação"
-```
-
-### 2.2 Fluxo de Estados (State Machine)
-
-```
-START
-  │
-  ├─→ MENU_PRINCIPAL
-  │     │
-  │     ├─→ [⚡ Novo Gasto] → AGUARDA_ENTRADA
-  │     ├─→ [📊 Histórico] → MOSTRA_HISTÓRICO
-  │     └─→ [💰 Relatório] → GERA_RELATÓRIO
-  │
-  └─→ COMANDO_DIRETO (/gasto ...)
-        │
-        ├─→ Valida input
-        └─→ AGUARDA_CONFIRMAÇÃO
-              │
-              ├─→ [Confirmar] → ENVIANDO
-              └─→ [Editar] → AGUARDA_ENTRADA
-```
+**O que o bot NÃO faz:**
+- Escrever transações diretamente no Sheets (isso é responsabilidade do Zap 1)
+- Processar ou validar dados com IA (responsabilidade do Zap 1)
 
 ---
 
-## 3. Opção B (Comando Direto) — Modo Rápido
+### 2.2 Zap 1 — CRUD de Transações
+
+Webhook de entrada para todas as operações de criação, leitura, atualização e deleção de transações.
+
+**Trigger:** `POST` no webhook do Zapier com payload JSON
+
+**Pipeline:**
 
 ```
-Usuário: /gasto ifood 39
-Bot: "Processando...
-     📝 Descrição: ifood
-     💵 Valor: R$ 39,00
-     Categoria: Alimentação
-     Data: 02/04/2025
-     
-     [✅ Confirmar] [✏️ Editar]"
-
-Usuário clica: [✅ Confirmar]
-Bot: "✅ Gasto registrado!"
+Webhook (catch hook)
+    → Python (normaliza campos, gera ID, detecta action)
+    → Claude AI via Mistral (valida e normaliza com IA)
+    → Parallel Paths (roteia por action)
+        ├── CREATE  → Google Sheets (append row)
+        ├── READ    → Google Sheets (lookup) → Telegram (mensagem)
+        ├── UPDATE  → Google Sheets (lookup + update row)
+        ├── DELETE  → Google Sheets (lookup + delete row)
+        └── REPORT  → Google Sheets (lookup) → Python (calcula resumo) → Email
 ```
 
----
-
-## 4. Estrutura de Dados
-
-### 4.1 Payload para Zapier
+**Payload esperado (CREATE):**
 
 ```json
 {
   "action": "create",
-  "user_id": "user_telegram_id",
+  "user_id": "7500965215",
   "description": "ifood",
-  "amount": 39,
+  "amount": 39.0,
   "category": "Alimentação",
   "type": "expense",
-  "date": "2025-04-02",
-  "filter": null,
-  "target": null,
-  "updates": null,
-  "_source": "telegram_bot"
-}
-```
-
-### 4.2 Mapeamento de Categorias (Hardcoded no Bot)
-
-```python
-CATEGORY_MAP = {
-    # Alimentação
-    "ifood": "Alimentação",
-    "uber eats": "Alimentação",
-    "rappi": "Alimentação",
-    "pizza": "Alimentação",
-    "restaurante": "Alimentação",
-    "mercado": "Compras",
-    "supermercado": "Compras",
-    
-    # Transporte
-    "uber": "Transporte",
-    "99": "Transporte",
-    "taxi": "Transporte",
-    "passagem": "Transporte",
-    
-    # Entretenimento
-    "netflix": "Entretenimento",
-    "spotify": "Entretenimento",
-    "cinema": "Entretenimento",
-    
-    # Saúde
-    "farmácia": "Saúde",
-    "médico": "Saúde",
-    "dentista": "Saúde",
-    
-    # Educação
-    "curso": "Educação",
-    "livro": "Educação",
+  "date": "2026-04-17",
+  "_source": "telegram_bot",
+  "_timestamp": "2026-04-17T14:30:00.000000"
 }
 ```
 
 ---
 
-## 5. Código Python — Bot Telegram
+### 2.3 Zap 2 — Atualização de Salário
 
-### 5.1 Setup Inicial
+Webhook dedicado exclusivamente ao registro e atualização do salário do usuário na aba `users`.
 
-```python
-import os
-import requests
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, \
-    CallbackQueryHandler, ConversationHandler, filters, ContextTypes
-from datetime import datetime
-import json
+**Trigger:** `POST` no webhook com `action: update_salary`
 
-# Configuração
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-ZAPIER_WEBHOOK = os.getenv("ZAPIER_WEBHOOK_URL")
+**Payload esperado:**
 
-# Estados da conversa
-MENU, AWAITING_EXPENSE, SELECTING_CATEGORY, CONFIRMING = range(4)
-
-# Mapeamento de categorias
-CATEGORY_MAP = {
-    "ifood": "Alimentação",
-    "uber eats": "Alimentação",
-    "rappi": "Alimentação",
-    "uber": "Transporte",
-    "99": "Transporte",
-    "netflix": "Entretenimento",
-    "spotify": "Entretenimento",
-    "farmácia": "Saúde",
-    "mercado": "Compras",
+```json
+{
+  "action": "update_salary",
+  "user_id": "7500965215",
+  "salary": 3500.00,
+  "_source": "telegram_bot",
+  "_timestamp": "2026-04-17T14:30:00.000000"
 }
-
-CATEGORIES = [
-    "Alimentação", "Transporte", "Entretenimento",
-    "Saúde", "Educação", "Moradia", "Compras", "Outros"
-]
 ```
 
-### 5.2 Comando START (Menu Principal)
-
-```python
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Mostra o menu principal com inline buttons"""
-    keyboard = [
-        [InlineKeyboardButton("⚡ Novo Gasto", callback_data="new_expense")],
-        [InlineKeyboardButton("📊 Histórico", callback_data="history")],
-        [InlineKeyboardButton("💰 Relatório", callback_data="report")]
-    ]
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await update.message.reply_text(
-        "Bem-vindo ao FinBot! 💰\n\n"
-        "Escolha uma opção ou digite rapidamente:\n"
-        "`/gasto ifood 39`",
-        reply_markup=reply_markup,
-        parse_mode="Markdown"
-    )
-    
-    return MENU
-```
-
-### 5.3 Comando Rápido (/gasto)
-
-```python
-async def quick_expense(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Modo rápido: /gasto <descrição> <valor>"""
-    
-    try:
-        # Parse: /gasto ifood 39
-        args = update.message.text.split()
-        
-        if len(args) < 3:
-            await update.message.reply_text(
-                "❌ Formato inválido!\n"
-                "Use: `/gasto ifood 39`",
-                parse_mode="Markdown"
-            )
-            return
-        
-        description = args[1]
-        try:
-            amount = float(args[2])
-        except ValueError:
-            await update.message.reply_text(
-                "❌ Valor inválido! Use números.",
-                parse_mode="Markdown"
-            )
-            return
-        
-        # Detecta categoria
-        category = detect_category(description)
-        
-        # Armazena contexto para confirmação
-        context.user_data['pending_expense'] = {
-            'description': description,
-            'amount': amount,
-            'category': category,
-            'date': datetime.now().strftime("%Y-%m-%d")
-        }
-        
-        # Mostra preview com botões
-        await show_confirmation_inline(update, context)
-        return CONFIRMING
-        
-    except Exception as e:
-        await update.message.reply_text(f"❌ Erro: {str(e)}")
-```
-
-### 5.4 Menu Button Handler
-
-```python
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Processa cliques nos inline buttons"""
-    query = update.callback_query
-    await query.answer()
-    
-    if query.data == "new_expense":
-        await query.edit_message_text(
-            text="Qual foi o gasto?\n"
-                 "Exemplo: `ifood 39 reais` ou `uber 25`",
-            parse_mode="Markdown"
-        )
-        return AWAITING_EXPENSE
-    
-    elif query.data == "history":
-        await query.edit_message_text(text="📊 Histórico dos últimos gastos:\n(Integrando com Google Sheets...)")
-        return MENU
-    
-    elif query.data == "report":
-        await query.edit_message_text(text="💰 Relatório mensal:\n(Integrando com Google Sheets...)")
-        return MENU
-```
-
-### 5.5 Função de Confirmação com Inline Buttons
-
-```python
-async def show_confirmation_inline(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Mostra preview do gasto com opções [Confirmar] [Editar]"""
-    
-    expense = context.user_data['pending_expense']
-    
-    keyboard = [
-        [
-            InlineKeyboardButton("✅ Confirmar", callback_data="confirm_expense"),
-            InlineKeyboardButton("✏️ Editar", callback_data="edit_expense")
-        ]
-    ]
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    preview = (
-        f"📝 Descrição: {expense['description']}\n"
-        f"💵 Valor: R$ {expense['amount']:.2f}\n"
-        f"🏷️ Categoria: {expense['category']}\n"
-        f"📅 Data: {expense['date']}"
-    )
-    
-    await update.message.reply_text(
-        f"Confirmando:\n{preview}",
-        reply_markup=reply_markup
-    )
-```
-
-### 5.6 Envio para Zapier
-
-```python
-async def send_to_zapier(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Envia gasto para Zapier"""
-    
-    expense = context.user_data.get('pending_expense')
-    
-    if not expense:
-        return
-    
-    payload = {
-        "action": "create",
-        "user_id": str(update.effective_user.id),
-        "description": expense['description'],
-        "amount": expense['amount'],
-        "category": expense['category'],
-        "type": "expense",
-        "date": expense['date'],
-        "filter": None,
-        "target": None,
-        "updates": None,
-        "_source": "telegram_bot"
-    }
-    
-    try:
-        response = requests.post(ZAPIER_WEBHOOK, json=payload, timeout=10)
-        
-        if response.status_code == 200:
-            await update.callback_query.edit_message_text(
-                text="✅ Gasto registrado com sucesso!\n\n"
-                     f"📝 {expense['description']}\n"
-                     f"💵 R$ {expense['amount']:.2f}\n"
-                     f"🏷️ {expense['category']}"
-            )
-        else:
-            await update.callback_query.edit_message_text(
-                text=f"❌ Erro ao registrar: {response.status_code}"
-            )
-    
-    except Exception as e:
-        await update.callback_query.edit_message_text(
-            text=f"❌ Erro: {str(e)}"
-        )
-    
-    context.user_data.pop('pending_expense', None)
-```
-
-### 5.7 Main Application
-
-```python
-def main():
-    """Inicializa o bot"""
-    
-    app = Application.builder().token(TELEGRAM_TOKEN).build()
-    
-    # Handlers
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("gasto", quick_expense))
-    app.add_handler(CallbackQueryHandler(button_handler))
-    
-    # Confirmar gasto
-    app.add_handler(
-        CallbackQueryHandler(
-            lambda u, c: send_to_zapier(u, c) if u.callback_query.data == "confirm_expense" else None,
-            pattern="confirm_expense"
-        )
-    )
-    
-    # Iniciar
-    app.run_polling()
-
-if __name__ == "__main__":
-    main()
-```
+**Lógica no Sheets:**
+- Se o `user_id` já existe na aba `users`: atualiza colunas `salary` (D) e `updated_at` (E)
+- Se não existe: cria nova linha com `user_id` na col A, `salary` na col D
 
 ---
 
-## 6. Integração com Zapier
+### 2.4 Google Sheets (Banco de Dados)
 
-### 6.1 Webhook Setup
+Atua como banco de dados relacional simplificado. Cada aba é tratada como uma tabela.
 
-1. **Criar Zap:**
-   - Trigger: `Webhooks by Zapier` → Catch raw hook
-   - Copiar URL
-   - Passar ao bot como `ZAPIER_WEBHOOK_URL`
+**Abas:**
 
-2. **Estrutura do Zap:**
-   ```
-   [Webhook Trigger] 
-       ↓
-   [Google Generative AI] (classificação inteligente)
-       ↓
-   [Google Sheets] (adicionar linha)
-   ```
-
-### 6.2 Mapeamento de Dados (Zapier)
-
-| Campo Zapier | Origem |
+| Aba | Função |
 |---|---|
-| `user_id` | `data.user_id` |
-| `description` | `data.description` |
-| `amount` | `data.amount` |
-| `category` | `data.category` |
-| `date` | `data.date` |
-| `type` | `data.type` |
+| `transactions` | Armazena todas as transações financeiras |
+| `users` | Armazena dados de usuário (email, salário) |
+| `categories` | Lista canônica de categorias *(não implementada)* |
+| `logs` | Auditoria de operações *(não implementada)* |
 
 ---
 
-## 7. Código de Configuração (Environment)
+## 3. Fluxo de Dados
 
-### 7.1 .env
-
-```bash
-TELEGRAM_BOT_TOKEN=seu_token_aqui
-ZAPIER_WEBHOOK_URL=https://hooks.zapier.com/hooks/catch/xxxxx/yyyy/
-GOOGLE_SHEETS_ID=sua_planilha_id
-```
-
-### 7.2 requirements.txt
+### 3.1 CREATE — Registrar Gasto
 
 ```
-python-telegram-bot==20.0
-requests==2.31.0
-python-dotenv==1.0.0
+Usuário digita "ifood 39" no Telegram
+    → bot.py: parse_quick_expense() extrai descrição e valor
+    → bot.py: detect_category() detecta categoria por keyword
+    → bot.py: show_confirmation() exibe preview
+    → Usuário confirma
+    → bot.py: send_expense_to_zapier() envia POST para ZAPIER_WEBHOOK_EXPENSE
+    → Zap 1: Python normaliza + Claude valida
+    → Zap 1: insere linha na aba transactions
+    → bot.py: exibe confirmação de sucesso
+```
+
+### 3.2 READ — Ver Histórico
+
+```
+Usuário clica em "📊 Histórico"
+    → bot.py: show_history() chama gs_client.get_user_transactions(user_id)
+    → gspread: lê todas as linhas da aba transactions
+    → bot.py: filtra por user_id
+    → bot.py: format_transactions() pagina e formata
+    → Telegram: exibe lista com navegação
+```
+
+### 3.3 SALARY — Registrar Salário
+
+```
+Usuário clica em "💵 Meu Salário"
+    → bot.py: show_salary_menu() lê salary + expenses do Sheets
+    → Exibe: salário, gastos do mês, saldo disponível
+    → Usuário clica "✏️ Registrar / Atualizar"
+    → bot.py: state = AWAITING_SALARY
+    → Usuário digita o valor
+    → bot.py: process_salary_input() valida e envia POST para ZAPIER_WEBHOOK_SALARY
+    → Zap 2: cria ou atualiza linha na aba users
+    → bot.py: exibe confirmação
 ```
 
 ---
 
-## 8. Função de Detecção de Categoria
+## 4. Gerenciamento de Estado
+
+O bot usa `context.user_data` do `python-telegram-bot` para manter estado por usuário entre mensagens. Não há persistência de estado — se o bot reiniciar, os estados são perdidos.
+
+**Estados definidos:**
 
 ```python
-def detect_category(text: str) -> str:
-    """Detecta categoria por keyword matching"""
-    text_lower = text.lower()
-    
-    for keyword, category in CATEGORY_MAP.items():
-        if keyword in text_lower:
-            return category
-    
-    return "Outros"
+MENU               = 0  # estado padrão (sem estado ativo)
+AWAITING_EXPENSE   = 1  # aguardando "descrição valor" via menu
+SELECTING_CATEGORY = 2  # reservado (não implementado)
+CONFIRMING         = 3  # reservado (não implementado)
+AWAITING_SALARY    = 4  # aguardando valor do salário
+```
+
+**Chaves usadas em `context.user_data`:**
+
+| Chave | Tipo | Descrição |
+|---|---|---|
+| `state` | int | Estado atual da conversa |
+| `pending_expense` | dict | Gasto aguardando confirmação |
+| `history_page` | int | Página atual do histórico |
+| `history_transactions` | list | Cache das transações carregadas |
+| `history_total_pages` | int | Total de páginas do histórico |
+
+---
+
+## 5. Variáveis de Ambiente
+
+| Variável | Obrigatória | Descrição |
+|---|---|---|
+| `TELEGRAM_BOT_TOKEN` | ✅ | Token do bot (obtido no @BotFather) |
+| `ZAPIER_WEBHOOK_EXPENSE` | ✅ | URL do webhook do Zap 1 |
+| `ZAPIER_WEBHOOK_SALARY` | ✅ | URL do webhook do Zap 2 |
+| `GOOGLE_SHEET_ID` | ✅ | ID da planilha (extraído da URL) |
+| `GOOGLE_CREDENTIALS_JSON` | ✅* | Conteúdo JSON das credenciais (Railway) |
+| `GOOGLE_CREDENTIALS_PATH` | ✅* | Caminho para o arquivo `.json` (local) |
+| `SHEET_NAME` | ❌ | Nome da aba de transações (padrão: `transactions`) |
+| `USERS_SHEET_NAME` | ❌ | Nome da aba de usuários (padrão: `users`) |
+
+*Apenas uma das duas opções de credencial é necessária. `GOOGLE_CREDENTIALS_JSON` tem prioridade sobre `GOOGLE_CREDENTIALS_PATH`.
+
+---
+
+## 6. Autenticação Google Sheets
+
+O `GoogleSheetsClient` suporta dois modos de autenticação, com prioridade definida:
+
+```
+1. GOOGLE_CREDENTIALS_JSON (string JSON)  ← usado no Railway
+       ↓ se não existir
+2. GOOGLE_CREDENTIALS_PATH (arquivo .json) ← usado localmente
+       ↓ se não existir
+3. ValueError — erro explícito na inicialização
+```
+
+O cliente é inicializado como singleton global na startup do bot. Se a conexão falhar, `gs_client = None` e as features que dependem do Sheets exibem uma mensagem de erro ao usuário sem crashar o bot.
+
+---
+
+## 7. Categorização Automática
+
+O bot detecta a categoria pelo campo `description` via keyword matching simples (sem IA). A IA do Zap 1 faz uma segunda passagem para refinar casos que o matching local não cobriu.
+
+**Mapeamento atual:**
+
+| Keywords | Categoria |
+|---|---|
+| ifood, uber eats, rappi, pizza, restaurante, lanche, café | Alimentação |
+| uber, 99, taxi, passagem, combustível, gasolina | Transporte |
+| netflix, spotify, cinema, jogo | Entretenimento |
+| farmácia, médico, dentista, vitamina | Saúde |
+| curso, livro, escola | Educação |
+| mercado, supermercado, roupa, eletrônico | Compras |
+| *(nenhum match)* | Outros |
+
+**Limitação conhecida:** o matching é feito por `keyword in text.lower()`, então "uber eats" pode conflitar com "uber" se a ordem dos itens no dict for alterada. Python 3.7+ garante ordem de inserção nos dicts, então "uber eats" deve aparecer **antes** de "uber" no `CATEGORY_MAP`.
+
+---
+
+## 8. Inconsistências Conhecidas
+
+### 8.1 `user_id` histórico inconsistente
+
+Transações antigas no Sheets foram inseridas com `user_id = "João"` ou `"webhook_user"` em vez do ID numérico do Telegram. O READ do bot filtra por ID numérico, então essas linhas não aparecem no histórico do usuário.
+
+**Solução recomendada:** normalizar manualmente as linhas antigas no Sheets para `user_id = "7500965215"`.
+
+### 8.2 Descriptions sujas
+
+Alguns registros têm o valor embutido na descrição (`"Restaurante 39 reais"`). Isso ocorre quando o usuário envia a descrição no formato errado antes da normalização da IA ser aplicada.
+
+### 8.3 Sem ConversationHandler nativo
+
+O bot gerencia estados manualmente via `context.user_data['state']` em vez de usar o `ConversationHandler` do `python-telegram-bot`. Isso pode causar estados "travados" se o usuário abandonar um fluxo no meio sem completar ou cancelar.
+
+**Solução recomendada:** implementar um comando `/cancelar` que limpa `context.user_data` e retorna ao menu principal.
+
+---
+
+## 9. Dependências
+
+```
+python-telegram-bot==20.x
+gspread==6.x
+google-auth==2.x
+requests==2.x
+python-dotenv==1.x
 ```
 
 ---
 
-## 9. Fluxo de Edição (Futuro)
+## 10. Limitações e Considerações de Escala
 
-```python
-async def edit_expense(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Permite editar antes de confirmar"""
-    
-    keyboard = [
-        [InlineKeyboardButton("📝 Descrição", callback_data="edit_desc")],
-        [InlineKeyboardButton("💵 Valor", callback_data="edit_amount")],
-        [InlineKeyboardButton("🏷️ Categoria", callback_data="edit_category")],
-        [InlineKeyboardButton("✅ Pronto!", callback_data="done_editing")]
-    ]
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await update.callback_query.edit_message_text(
-        text="O que deseja editar?",
-        reply_markup=reply_markup
-    )
-```
-
----
-
-## 10. Próximos Passos
-
-### Phase 1 (MVP)
-- ✅ Menu Principal (3 botões)
-- ✅ Comando rápido `/gasto`
-- ✅ Detecção de categoria
-- ✅ Envio para Zapier
-
-### Phase 2 (Expansão)
-- Edição de transações
-- Histórico com botões de navegação
-- Relatórios simples
-- Limite de gastos com alertas
-
-### Phase 3 (Avançado)
-- Web App integrado (opcional)
-- Gráficos de gastos
-- Metas financeiras
-- Exportar para Excel
-
----
-
-## 11. Deployment
-
-### 11.1 Deploy no Heroku / Railway
-
-```bash
-git init
-git add .
-git commit -m "Initial bot commit"
-git push heroku main
-```
-
-### 11.2 Webhook Setup (Production)
-
-```python
-app.run_webhook(
-    listen="0.0.0.0",
-    port=8000,
-    url_path=TELEGRAM_TOKEN,
-    webhook_url=f"https://seu-dominio.com/{TELEGRAM_TOKEN}"
-)
-```
-
----
-
-## Resumo
-
-✅ **Opção A (Menu):** Menu principal intuitivo → Novo Gasto → Confirmação  
-✅ **Opção B (Rápida):** `/gasto ifood 39` → Confirmação  
-✅ **Integração Zapier:** Webhook → Google Sheets  
-✅ **Categorização Automática:** Keywords + Fallback "Outros"  
-
-**Próximo:** Clonar este código, configurar tokens e fazer deploy! 🚀
+- **Google Sheets não é um banco de dados real.** Para mais de ~1.000 linhas na aba `transactions`, o `get_all_records()` começa a ficar lento. Para escala maior, considerar migração para Supabase ou Firebase.
+- **Sem autenticação multi-usuário real.** O sistema confia no `user_id` do Telegram como identificador único. Não há verificação adicional.
+- **Zapier gratuito tem limite de 100 tasks/mês.** Para uso intenso, considerar n8n self-hosted como alternativa.
+- **Estado de conversa não persiste entre reinicializações do bot.** Usuários em meio a um fluxo perdem o estado se o Railway reiniciar o serviço.
