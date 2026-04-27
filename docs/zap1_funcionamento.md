@@ -5,7 +5,7 @@ Seu Zap é um sistema completo de gestão financeira que recebe requisições vi
  Componente 	 Função
  Trigger 	 Webhook que recebe dados financeiros em JSON
  Processamento 	 3 etapas: Python → Normalização → IA (Mistral)
- Roteamento 	 5 branches condicionais (CREATE, READ, UPDATE, DELETE, REPORT)
+ Roteamento 	 4 branches condicionais (CREATE, READ, DELETE, REPORT)
  Saídas 	 Google Sheets, Telegram, Email
 📥 Step 1: Webhook Trigger
 
@@ -65,9 +65,9 @@ Função: Double-check de normalização
     Detecta income/expense se type vazio
 
 Output: JSON normalizado e validado (garante dados consistentes)
-🎋 Paths: 5 Branches Condicionais
+🎋 Paths: 4 Branches Condicionais
 
-Baseado no action após normalização, o fluxo se divide em 5 caminhos:
+Baseado no action após normalização, o fluxo se divide em 4 caminhos:
 🟢 Branch 1: CREATE (Inserir transação)
 
 Condição: action = "create"
@@ -128,29 +128,7 @@ Ultimas transacoes:
 
 ---
 
-### 🟡 **Branch 3: UPDATE** (Atualizar salário)
-
-**Condição:** `action = "update_salary"`
-
-**Fluxo:**
-1. **Google Sheets lookup** → Busca usuário na aba "users" (coluna A = user_id)
-2. **Code Step** → Prepara dados para atualização:
-
-json
-{
-  "status": "success",
-  "message": "Salário do usuário joão atualizado para R$ 5.500,00",
-  "userid": "joão",
-  "row": "rownumber",
-  "new_salary": 5500.00
-}
-
-
-**⚠️ Status:** Este branch existe mas a atualização no Sheets não está completa (falta update_row)
-
----
-
-### 🔴 **Branch 4: DELETE** (Deletar transação)
+### 🔴 **Branch 3: DELETE** (Deletar transação)
 
 **Condição:** `action = "delete"`
 
@@ -165,7 +143,7 @@ json
 
 ---
 
-### 📊 **Branch 5: REPORT** (Gerar relatório financeiro)
+### 📊 **Branch 4: REPORT** (Gerar relatório financeiro)
 
 **Condição:** `action = "report"`
 
@@ -267,7 +245,7 @@ Python Code (Step 2):
 ⚙️ Recursos Utilizados
 
     ✅ Code by Zapier (Python) – 3 steps para transformação
-    ✅ Paths – 5 branches condicionais
+    ✅ Paths – 4 branches condicionais
     ✅ Google Sheets – Leitura, busca e escrita
     ✅ AI by Zapier – Normalização inteligente
     ✅ Telegram – Notificações
@@ -277,7 +255,6 @@ Python Code (Step 2):
  Comando 	 O que Acontece
  "Gastei R$ 50 em pizza" 	 CREATE → Salva transação em Alimentação
  "Ver minhas transações" 	 READ → Telegram com últimas transações
- "Meu salário é R$ 5500" 	 UPDATE → Atualiza na aba users
  "Deletar última transação" 	 DELETE → Remove linha do Sheets
  "Gerar relatório" 	 REPORT → Email com resumo financeiro
 📈 Status Atual
@@ -286,6 +263,5 @@ Python Code (Step 2):
     ✅ Todas as autenticações conectadas
     ✅ Planilha "Assistente Financeiro" sincronizada
     ✅ Telegram e Email funcionando
-    ⚠️ Branch UPDATE não tem step de atualização final (falta update_row)
 
 Este é um Zap production-ready de gestão financeira inteligente com interpretação natural de linguagem! 🚀

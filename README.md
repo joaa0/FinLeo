@@ -40,35 +40,35 @@ O FinBot opera em três camadas que trabalham juntas:
 
 | Operação | Caminho |
 |---|---|
-| **Criar transação** | Bot → Zap 1 (webhook) → Google Sheets (`transactions`) |
-| **Atualizar salário** | Bot → Zap 2 (webhook) → Google Sheets (`users`) |
-| **Consultar histórico** | Bot ← Google Sheets (leitura direta via `gspread`) |
+| **Criar transação** | Bot → Zap 1 → transactions |
+| **Atualizar salário** | Bot → Zap 2 → users |
+| **Consultar histórico** | Bot ← Google Sheets via gspread |
+| **Deletar transação** | Bot → Zap 1 → transactions |
 | **Consultar salário/saldo** | Bot ← Google Sheets (leitura direta via `gspread`) |
 
 ---
 
 ## ⚙️ O que cada Zap faz
 
-### Zap 1 — CRUD de Transações
+### Zap 1 — Transações: CREATE, READ, DELETE e REPORT
 
 Pipeline: **Webhook → Python (normalização) → IA Mistral (validação) → Paths condicionais**
 
 1. **Webhook** recebe JSON com `action`, `description`, `amount`, `category`, `type`, `date`, `user_id`
 2. **Code (Python)** gera ID único, detecta ação por keywords no texto, normaliza categoria e tipo
 3. **AI (Mistral)** faz double-check: preenche campos vazios, extrai valor do texto, infere categoria
-4. **Paths** roteia para 5 branches:
+4. **Paths** roteia para 4 branches:
 
 | Branch | Condição | Ação |
 |---|---|---|
 | **CREATE** | `action = "create"` | Insere linha na aba `transactions` |
 | **READ** | `action = "read"` | Busca transações e envia resumo via Telegram |
-| **UPDATE** | `action = "update_salary"` | Busca e atualiza na aba `users` ⚠️ |
 | **DELETE** | `action = "delete"` | Remove linha da aba `transactions` |
 | **REPORT** | `action = "report"` | Calcula resumo financeiro e envia por email |
 
-> ⚠️ A branch UPDATE dentro do Zap 1 está incompleta (falta o step `update_row`). A atualização de salário funciona de fato pelo **Zap 2**.
-
 ### Zap 2 — Atualização de Salário
+
+Zap 2 é exclusivo para salário. Toda atualização de salário passa pelo Zap 2. Nenhum update_salary deve ser tratado no Zap 1.
 
 Pipeline: **Webhook → Python (validação de entity) → IA Mistral → Paths (user / transaction)**
 
@@ -352,7 +352,8 @@ google-auth (instalado como dependência do gspread)
 - ✅ Suporte a receitas (`income`) e despesas (`expense`)
 - ✅ Deploy em cloud (Railway/Heroku) com credenciais via variável de ambiente
 - 🚧 Relatório mensal (em desenvolvimento)
-- 🚧 DELETE e READ via Zap 1 (branches configuradas, não expostas no bot ainda)
+- 🚧 DELETE via Zap 1 configurado/pendente de exposição no bot
+- 🚧 READ via Zap 1 configurado, não exposto no bot ainda
 - 🚧 REPORT via email (branch configurada no Zap 1, não exposta no bot ainda)
 
 ---
