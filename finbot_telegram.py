@@ -618,6 +618,21 @@ def _post_zapier(url: str, payload: dict) -> requests.Response:
     return requests.post(url, json=payload, timeout=10)
 
 
+def is_payload_complete(payload: dict) -> bool:
+    """Verifica se o payload possui todos os campos para evitar IA no Zapier."""
+    required_keys = ['action', 'user_id', 'description', 'amount', 'category', 'type', 'date']
+    for key in required_keys:
+        val = payload.get(key)
+        if val is None or (isinstance(val, str) and not val.strip()):
+            return False
+        if key == 'amount':
+            try:
+                float(val)
+            except (ValueError, TypeError):
+                return False
+    return True
+
+
 # ============================================================================
 # HELPERS — ONBOARDING
 # ============================================================================
@@ -804,17 +819,24 @@ async def send_expense_to_zapier(update: Update, context: ContextTypes.DEFAULT_T
     payload = {
         "action":      "create",
         "user_id":     str(update.effective_user.id),
-        "description": expense['description'],
-        "amount":      expense['amount'],
-        "category":    expense['category'],
-        "type":        expense['type'],
-        "date":        expense['date'],
+        "description": expense.get('description', ''),
+        "amount":      expense.get('amount', 0),
+        "category":    expense.get('category', ''),
+        "type":        expense.get('type', ''),
+        "date":        expense.get('date', ''),
         "_source":     "telegram_bot",
         "_timestamp":  datetime.now().isoformat()
     }
 
+    is_normalized = is_payload_complete(payload)
+    payload["_normalized"] = is_normalized
+
     try:
-        logger.info(f"Enviando gasto para Zap 1: {payload}")
+        if is_normalized:
+            logger.info(f"🚀 Enviando gasto NORMALIZADO para Zap 1: {payload}")
+        else:
+            logger.info(f"⚠️ Enviando gasto NÃO NORMALIZADO (fallback) para Zap 1: {payload}")
+
         response = _post_zapier(ZAPIER_WEBHOOK_EXPENSE, payload)
 
         if response.status_code == 200:
