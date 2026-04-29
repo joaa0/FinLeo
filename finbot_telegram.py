@@ -66,6 +66,45 @@ logging.getLogger("apscheduler").setLevel(logging.WARNING)
     AWAITING_ONBOARDING_SALARY # onboarding — aguardando salário inicial
 ) = range(7)
 
+# ============================================================================
+# CACHE LOCAL (Simples)
+# ============================================================================
+# Reduz chamadas repetidas ao Google Sheets
+CACHE_TTL_SECONDS = 60
+
+def get_cache(context: ContextTypes.DEFAULT_TYPE, key: str):
+    """Obtém dados do cache local do usuário, se não estiver expirado."""
+    cache = context.user_data.get("_cache", {})
+    if key in cache:
+        item = cache[key]
+        if datetime.now() < item["expires_at"]:
+            logger.debug(f"🔍 [CACHE HIT] {key}")
+            return item["data"]
+        else:
+            logger.debug(f"♻️ [CACHE EXPIRED] {key}")
+            del cache[key]
+    else:
+        logger.debug(f"⚠️ [CACHE MISS] {key}")
+    return None
+
+def set_cache(context: ContextTypes.DEFAULT_TYPE, key: str, data: any):
+    """Armazena dados no cache local do usuário com um tempo de expiração."""
+    if "_cache" not in context.user_data:
+        context.user_data["_cache"] = {}
+    context.user_data["_cache"][key] = {
+        "data": data,
+        "expires_at": datetime.now() + timedelta(seconds=CACHE_TTL_SECONDS)
+    }
+    logger.debug(f"💾 [CACHE SET] {key} por {CACHE_TTL_SECONDS}s")
+
+def invalidate_cache(context: ContextTypes.DEFAULT_TYPE, *keys):
+    """Invalida chaves específicas no cache local do usuário."""
+    if "_cache" in context.user_data:
+        for key in keys:
+            if key in context.user_data["_cache"]:
+                del context.user_data["_cache"][key]
+                logger.debug(f"🗑️ [CACHE INVALIDATED] {key}")
+
 # Mapeamento inteligente de categorias
 # Cada entrada: keyword → (categoria, type)
 CATEGORY_MAP = {
@@ -141,7 +180,10 @@ class GoogleSheetsClient:
             scopes = ['https://www.googleapis.com/auth/spreadsheets']
             
             logger.info("🛠️ Verificando configurações do Google Sheets...")
+            logger.info(f"  - GOOGLE_SHEET_ID: {'✅ Presente' if self.sheet_id else '❌ Ausente'}")
+            
             credentials_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
+            logger.info(f"  - GOOGLE_CREDENTIALS_JSON: {'✅ Presente' if credentials_json else '❌ Ausente'}")
             
             if credentials_json:
                 logger.info("🔑 Modo: GOOGLE_CREDENTIALS_JSON (Cloud/Railway)")
@@ -387,13 +429,13 @@ class GoogleSheetsClient:
 
 # Inicializar cliente Google Sheets (global)
 gs_client = None
-if SHEET_ID and (CREDENTIALS_PATH or os.getenv("GOOGLE_CREDENTIALS_JSON")):
-    try:
+try:
+    if SHEET_ID and (CREDENTIALS_PATH or os.getenv("GOOGLE_CREDENTIALS_JSON")):
         gs_client = GoogleSheetsClient(CREDENTIALS_PATH, SHEET_ID)
-    except Exception:
-        logger.exception("❌ Erro fatal ao inicializar Google Sheets. O bot funcionará com recursos limitados.")
-else:
-    logger.warning("⚠️ Configurações do Google Sheets incompletas. Verifique SHEET_ID e Credenciais.")
+    else:
+        logger.warning("⚠️ Configurações do Google Sheets incompletas. Verifique SHEET_ID e Credenciais.")
+except Exception as e:
+    logger.exception("Erro ao conectar Google Sheets")
 
 
 # ============================================================================
@@ -769,6 +811,7 @@ async def send_expense_to_zapier(update: Update, context: ContextTypes.DEFAULT_T
         response = _post_zapier(ZAPIER_WEBHOOK_EXPENSE, payload)
 
         if response.status_code == 200:
+            invalidate_cache(context, "transactions", "salary_summary")
             await query.edit_message_text(
                 "✅ *Transação registrada com sucesso!*\n\n"
                 f"📝 {expense['description']}\n"
@@ -807,7 +850,11 @@ async def show_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    transactions = await gs_client.get_user_transactions(user_id)
+    transactions = get_cache(context, "transactions")
+    if transactions is None:
+        transactions = await gs_client.get_user_transactions(user_id)
+        set_cache(context, "transactions", transactions)
+
     message, total_pages = format_transactions(transactions, page=1)
 
     if total_pages > 1:
@@ -858,7 +905,11 @@ async def command_historico(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Erro: Conexão com Google Sheets não disponível")
         return
 
-    transactions = await gs_client.get_user_transactions(user_id)
+    transactions = get_cache(context, "transactions")
+    if transactions is None:
+        transactions = await gs_client.get_user_transactions(user_id)
+        set_cache(context, "transactions", transactions)
+
     message, total_pages = format_transactions(transactions, page=1)
 
     keyboard = []
@@ -892,10 +943,15 @@ async def show_salary_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("❌ Erro: Conexão com Google Sheets não disponível")
         return
 
-    salary, (total_expense, total_income) = await asyncio.gather(
-        gs_client.get_user_salary(user_id),
-        gs_client.get_monthly_summary(user_id)
-    )
+    salary_summary = get_cache(context, "salary_summary")
+    if salary_summary is None:
+        salary_summary = await asyncio.gather(
+            gs_client.get_user_salary(user_id),
+            gs_client.get_monthly_summary(user_id)
+        )
+        set_cache(context, "salary_summary", salary_summary)
+
+    salary, (total_expense, total_income) = salary_summary
     balance = salary + total_income - total_expense
 
     if salary > 0:
@@ -974,6 +1030,7 @@ async def process_salary_input(update: Update, context: ContextTypes.DEFAULT_TYP
         response = _post_zapier(ZAPIER_WEBHOOK_SALARY, payload)
 
         if response.status_code == 200:
+            invalidate_cache(context, "salary_summary")
             keyboard = [
                 [InlineKeyboardButton("💵 Ver Salário",    callback_data="salary_menu")],
                 [InlineKeyboardButton("🏠 Menu Principal", callback_data="back_to_menu")]
@@ -1012,10 +1069,15 @@ async def command_salario(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Erro: Conexão com Google Sheets não disponível")
         return
 
-    salary, (total_expense, total_income) = await asyncio.gather(
-        gs_client.get_user_salary(user_id),
-        gs_client.get_monthly_summary(user_id)
-    )
+    salary_summary = get_cache(context, "salary_summary")
+    if salary_summary is None:
+        salary_summary = await asyncio.gather(
+            gs_client.get_user_salary(user_id),
+            gs_client.get_monthly_summary(user_id)
+        )
+        set_cache(context, "salary_summary", salary_summary)
+
+    salary, (total_expense, total_income) = salary_summary
     balance = salary + total_income - total_expense
 
     if salary > 0:
@@ -1057,7 +1119,10 @@ async def show_delete_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("❌ Erro: Conexão com Google Sheets não disponível")
         return
 
-    transactions = await gs_client.get_user_transactions(user_id)
+    transactions = get_cache(context, "transactions")
+    if transactions is None:
+        transactions = await gs_client.get_user_transactions(user_id)
+        set_cache(context, "transactions", transactions)
     
     recent_transactions = list(reversed(transactions))[:10]
     
@@ -1101,7 +1166,10 @@ async def delete_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("❌ Erro: Conexão com Google Sheets não disponível")
         return
         
-    transactions = await gs_client.get_user_transactions(user_id)
+    transactions = get_cache(context, "transactions")
+    if transactions is None:
+        transactions = await gs_client.get_user_transactions(user_id)
+        set_cache(context, "transactions", transactions)
     selected_trans = next((t for t in transactions if str(t.get('id')) == str(transaction_id)), None)
     
     if not selected_trans:
@@ -1141,7 +1209,10 @@ async def delete_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("❌ Erro: Conexão com Google Sheets não disponível")
         return
         
-    transactions = await gs_client.get_user_transactions(user_id)
+    transactions = get_cache(context, "transactions")
+    if transactions is None:
+        transactions = await gs_client.get_user_transactions(user_id)
+        set_cache(context, "transactions", transactions)
     selected_trans = next((t for t in transactions if str(t.get('id')) == str(transaction_id)), None)
     
     if not selected_trans:
@@ -1165,6 +1236,7 @@ async def delete_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response = _post_zapier(ZAPIER_WEBHOOK_EXPENSE, payload)
         
         if response.status_code >= 200 and response.status_code < 300:
+            invalidate_cache(context, "transactions", "salary_summary")
             keyboard = [[InlineKeyboardButton("⬅️ Voltar", callback_data="back_to_menu")]]
             await query.edit_message_text(
                 "✅ Transação deletada com sucesso!",
@@ -1393,7 +1465,7 @@ def main():
     app.add_error_handler(error_handler)
 
     logger.info("🤖 Polling iniciado. Pressione Ctrl+C para parar.")
-    logger.info("⚠️ ATENÇÃO: Apenas UMA instância deste bot pode rodar polling por vez no Railway.")
+    logger.warning("⚠️ Polling deve rodar em apenas uma instância")
     
     # Inicia o polling
     app.run_polling()
