@@ -136,6 +136,7 @@ class GoogleSheetsClient:
         self._connect()
 
     def _connect(self):
+        credentials_dict["private_key"] = credentials_dict["private_key"].replace("\\n", "\n")
         """Conecta ao Google Sheets — suporta JSON string (Railway) ou arquivo local"""
         try:
             scopes = ['https://www.googleapis.com/auth/spreadsheets']
