@@ -140,55 +140,48 @@ class GoogleSheetsClient:
         try:
             scopes = ['https://www.googleapis.com/auth/spreadsheets']
             
-            # Log de segurança: informa o que está disponível sem vazar segredos
             logger.info("🛠️ Verificando configurações do Google Sheets...")
-            logger.info(f"  - GOOGLE_SHEET_ID: {'✅ Presente' if self.sheet_id else '❌ Ausente'}")
-            
             credentials_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
-            logger.info(f"  - GOOGLE_CREDENTIALS_JSON: {'✅ Presente' if credentials_json else '❌ Ausente'}")
-            logger.info(f"  - GOOGLE_CREDENTIALS_PATH: {'✅ Presente' if self.credentials_path else '❌ Ausente'}")
-
+            
             if credentials_json:
-                logger.info("🔑 Tentando carregar credenciais via GOOGLE_CREDENTIALS_JSON...")
+                logger.info("🔑 Modo: GOOGLE_CREDENTIALS_JSON (Cloud/Railway)")
                 try:
                     credentials_dict = json.loads(credentials_json)
-                    
-                    # Correção para chaves privadas com quebras de linha literais em env vars
+                    # Correção vital para chaves privadas no Railway/Heroku
                     if "private_key" in credentials_dict:
                         credentials_dict["private_key"] = credentials_dict["private_key"].replace("\\n", "\n")
                     
                     if "client_email" in credentials_dict:
-                        logger.info(f"📧 Service Account Email: {credentials_dict['client_email']}")
+                        logger.info(f"📧 Service Account: {credentials_dict['client_email']}")
 
                     credentials = Credentials.from_service_account_info(
                         credentials_dict, scopes=scopes
                     )
                 except json.JSONDecodeError as e:
-                    raise RuntimeError(f"Erro ao parsear GOOGLE_CREDENTIALS_JSON: {e}")
+                    raise RuntimeError(f"JSON de credenciais inválido: {e}")
 
             elif self.credentials_path:
-                logger.info(f"🔑 Tentando carregar credenciais via arquivo: {self.credentials_path}")
+                logger.info(f"🔑 Modo: GOOGLE_CREDENTIALS_PATH (Local: {self.credentials_path})")
                 if not os.path.exists(self.credentials_path):
-                    raise RuntimeError(f"Arquivo de credenciais não encontrado: {self.credentials_path}")
+                    raise RuntimeError(f"Arquivo não encontrado: {self.credentials_path}")
                 
                 credentials = Credentials.from_service_account_file(
                     self.credentials_path, scopes=scopes
                 )
 
             else:
-                raise RuntimeError(
-                    "Nenhuma fonte de credenciais encontrada. "
-                    "Configure GOOGLE_CREDENTIALS_JSON ou GOOGLE_CREDENTIALS_PATH."
-                )
+                raise RuntimeError("Nenhuma credencial configurada (GOOGLE_CREDENTIALS_JSON ou PATH)")
 
+            # Autorização e conexão
             self.client = gspread.authorize(credentials)
             self.spreadsheet = self.client.open_by_key(self.sheet_id)
             self.worksheet = self.spreadsheet.worksheet(SHEET_NAME)
-            logger.info("✅ Conexão com Google Sheets estabelecida com sucesso!")
+            logger.info("✅ Conectado ao Google Sheets com sucesso!")
 
         except Exception as e:
-            logger.error(f"❌ Falha crítica na conexão com Google Sheets: {str(e)}")
+            logger.error(f"❌ Erro ao conectar Google Sheets: {str(e)}")
             raise
+
 
     async def get_user_transactions(self, user_id: str) -> List[dict]:
         """Busca todas as transações de um usuário"""
