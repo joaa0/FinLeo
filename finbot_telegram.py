@@ -551,20 +551,29 @@ def detect_category(text: str) -> Tuple[str, str]:
     return "Outros", "expense"  # fallback padrão
 
 
+def split_transaction_details(text: str) -> Tuple[str, str]:
+    """Separa o bloco opcional de observações usando `|`."""
+    if "|" not in text:
+        return text.strip(), ""
+
+    main_text, details = text.split("|", 1)
+    return main_text.strip(), details.strip()
+
+
 def parse_quick_expense(text: str) -> tuple:
-    """Parse do formato: /gasto descrição valor"""
+    """Parse do formato: /gasto descrição valor | detalhes opcionais"""
     try:
-        parts = text.split()
+        main_text, details = split_transaction_details(text)
+        parts = main_text.split()
         if len(parts) < 3:
-            return None, None, "Formato inválido"
+            return None, None, "", "Formato inválido"
         description = parts[1]
-        try:
-            amount = float(parts[2])
-        except ValueError:
-            return None, None, "Valor deve ser um número"
-        return description, amount, None
+        amount = normalize_amount(parts[2])
+        if amount is None:
+            return None, None, "", "Valor deve ser um número"
+        return description.strip(), amount, details, None
     except Exception as e:
-        return None, None, str(e)
+        return None, None, "", str(e)
 
 
 def format_transactions(transactions: List[dict], page: int = 1, items_per_page: int = 5) -> Tuple[str, int]:
@@ -586,6 +595,7 @@ def format_transactions(transactions: List[dict], page: int = 1, items_per_page:
     for trans in page_transactions:
         date        = trans.get('date', 'N/A')
         description = trans.get('description', 'N/A')
+        details     = str(trans.get('details', '') or '').strip()
         category    = trans.get('category', 'N/A')
         amount      = trans.get('amount', '0')
         trans_type  = trans.get('type', 'expense')
@@ -604,6 +614,8 @@ def format_transactions(transactions: List[dict], page: int = 1, items_per_page:
 
         body += f"{emoji} *{description.title()}*\n"
         body += f"   {category_emoji} {category} | R$ {amount}\n"
+        if details:
+            body += f"   Obs: {details}\n"
         body += f"   📅 {date}\n\n"
 
     return header + body + "─" * 40, total_pages
@@ -757,7 +769,7 @@ async def onboarding_process_salary(update: Update, context: ContextTypes.DEFAUL
 
 async def quick_expense(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Comando /gasto — Modo rápido"""
-    description, amount, error = parse_quick_expense(update.message.text)
+    description, amount, details, error = parse_quick_expense(update.message.text)
     if error:
         await update.message.reply_text(
             f"❌ {error}\n\nUso correto: `/registro ifood 39`",
@@ -769,6 +781,7 @@ async def quick_expense(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['pending_expense'] = {
         'description': description,
         'amount':      amount,
+        'details':     details,
         'category':    category,
         'type':        trans_type,
         'date':        datetime.now().strftime("%Y-%m-%d"),
@@ -796,6 +809,9 @@ async def show_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{type_emoji} *Tipo:* {'Recebimento' if expense['type'] == 'income' else 'Gasto'}\n"
         f"📅 *Data:* {expense['date']}"
     )
+    details = str(expense.get('details', '') or '').strip()
+    if details:
+        text += f"\n🧾 *Obs:* {details}"
 
     if update.message:
         await update.message.reply_text(
@@ -820,6 +836,7 @@ async def send_expense_to_zapier(update: Update, context: ContextTypes.DEFAULT_T
         "action":      "create",
         "user_id":     str(update.effective_user.id),
         "description": expense.get('description', ''),
+        "details":     expense.get('details', ''),
         "amount":      expense.get('amount', 0),
         "category":    expense.get('category', ''),
         "type":        expense.get('type', ''),
@@ -841,12 +858,18 @@ async def send_expense_to_zapier(update: Update, context: ContextTypes.DEFAULT_T
 
         if response.status_code == 200:
             invalidate_cache(context, "transactions", "salary_summary")
-            await query.edit_message_text(
+            success_text = (
                 "✅ *Transação registrada com sucesso!*\n\n"
                 f"📝 {expense['description']}\n"
                 f"💵 R$ {expense['amount']:.2f}\n"
                 f"🏷️ {expense['category']}\n"
-                f"📅 {expense['date']}",
+            )
+            details = str(expense.get('details', '') or '').strip()
+            if details:
+                success_text += f"🧾 {details}\n"
+            success_text += f"📅 {expense['date']}"
+            await query.edit_message_text(
+                success_text,
                 parse_mode="Markdown"
             )
         else:
@@ -1300,9 +1323,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "new_expense":
         context.user_data['state'] = AWAITING_EXPENSE
         await query.edit_message_text(
-            "O que deseja registrar?\n"
-            "Gasto: `ifood 39` ou `uber 25`\n"
-            "Recebimento: `salário 3500` ou `freelance 800`",
+            "O que deseja registrar?\n\n"
+            "💸 Gasto:\n"
+            "ifood 39 ou uber 25\n\n"
+            "💰 Recebimento:\n"
+            "salário 3500 ou freelance 800\n\n"
+            "──────────────\n"
+            "💡 Dica: adicione detalhes com \"|\"\n"
+            "Ex: mercado 80 | compra do mês",
             parse_mode="Markdown"
         )
 
@@ -1404,7 +1432,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Estado: aguardando gasto pelo menu
     if state == AWAITING_EXPENSE:
-        description, amount, error = parse_quick_expense("/registro " + text)
+        description, amount, details, error = parse_quick_expense("/registro " + text)
         if error:
             await update.message.reply_text(
                 f"❌ {error}\nFormato: 'ifood 39'",
@@ -1415,6 +1443,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['pending_expense'] = {
             'description': description,
             'amount':      amount,
+            'details':     details,
             'category':    category,
             'type':        trans_type,
             'date':        datetime.now().strftime("%Y-%m-%d"),
@@ -1425,21 +1454,22 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Fallback: editando gasto pendente
     if 'pending_expense' in context.user_data:
-        parts = text.split()
+        main_text, details = split_transaction_details(text)
+        parts = main_text.split()
         if len(parts) >= 2:
-            try:
-                amount = float(parts[1])
+            amount = normalize_amount(parts[1])
+            if amount is not None:
                 category, trans_type = detect_category(parts[0])
                 context.user_data['pending_expense']['description'] = parts[0]
                 context.user_data['pending_expense']['amount']      = amount
+                context.user_data['pending_expense']['details']     = details
                 context.user_data['pending_expense']['category']    = category
                 context.user_data['pending_expense']['type']        = trans_type
                 await show_confirmation(update, context)
                 return
-            except ValueError:
-                pass
-        category, trans_type = detect_category(text)
-        context.user_data['pending_expense']['description'] = text
+        category, trans_type = detect_category(main_text)
+        context.user_data['pending_expense']['description'] = main_text
+        context.user_data['pending_expense']['details']     = details
         context.user_data['pending_expense']['category']    = category
         context.user_data['pending_expense']['type']        = trans_type
         await show_confirmation(update, context)

@@ -59,6 +59,7 @@ Webhook (catch hook)
   "action": "create",
   "user_id": "7500965215",
   "description": "ifood",
+  "details": "Combo com entrega",
   "amount": 39.0,
   "category": "Alimentação",
   "type": "expense",
@@ -114,8 +115,8 @@ Atua como banco de dados relacional simplificado. Cada aba é tratada como uma t
 ### 3.1 CREATE — Registrar Gasto
 
 ```
-Usuário digita "ifood 39" no Telegram
-    → finbot_telegram.py: parse_quick_expense() extrai descrição e valor
+Usuário digita "ifood 39" ou "ifood 39 | sem cebola" no Telegram
+    → finbot_telegram.py: parse_quick_expense() extrai descrição, valor e details opcional
     → finbot_telegram.py: detect_category() detecta categoria por keyword
     → finbot_telegram.py: show_confirmation() exibe preview
     → Usuário confirma
@@ -229,6 +230,28 @@ O bot detecta a categoria pelo campo `description` via keyword matching simples 
 
 **Limitação conhecida:** o matching é feito por `keyword in text.lower()`, então "uber eats" pode conflitar com "uber" se a ordem dos itens no dict for alterada. Python 3.7+ garante ordem de inserção nos dicts, então "uber eats" deve aparecer **antes** de "uber" no `CATEGORY_MAP`.
 
+## 7.1 Formato rápido com details opcional
+
+O registro rápido continua compatível com o formato legado:
+
+```text
+/registro mercado 84
+```
+
+Agora também aceita observações após o separador opcional `|`:
+
+```text
+/registro mercado 84 | compra semanal com arroz e carne
+```
+
+**Regras atuais:**
+
+- Apenas o trecho antes de `|` é usado para extrair `description` e `amount`
+- A inferência de `category` e `type` também usa apenas o trecho antes de `|`
+- O trecho após `|` é armazenado em `details`
+- Se `|` não existir, `details = ""`
+- Espaços extras nas duas partes são removidos
+
 ---
 
 ## 8. Inconsistências Conhecidas
@@ -243,7 +266,11 @@ Transações antigas no Sheets foram inseridas com `user_id = "João"` ou `"webh
 
 Alguns registros têm o valor embutido na descrição (`"Restaurante 39 reais"`). Isso ocorre quando o usuário envia a descrição no formato errado antes da normalização da IA ser aplicada.
 
-### 8.3 Sem ConversationHandler nativo
+### 8.3 Persistência de `details` depende do Zap/Sheets
+
+O bot agora envia `details` no payload de criação e consegue exibir o campo no preview e no histórico. Ainda assim, o histórico só mostrará a observação se o Zap 1 e a planilha também persistirem e devolverem essa coluna/campo na leitura.
+
+### 8.4 Sem ConversationHandler nativo
 
 O bot gerencia estados manualmente via `context.user_data['state']` em vez de usar o `ConversationHandler` do `python-telegram-bot`. Isso pode causar estados "travados" se o usuário abandonar um fluxo no meio sem completar ou cancelar.
 
