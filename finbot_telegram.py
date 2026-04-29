@@ -1329,8 +1329,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "💰 Recebimento:\n"
             "salário 3500 ou freelance 800\n\n"
             "──────────────\n"
-            "💡 Dica: adicione detalhes com \"|\"\n"
-            "Ex: mercado 80 | compra do mês",
+            "💡 Você pode detalhar a transação:\n\n"
+            "Formato:\n"
+            "descricao valor | detalhe\n\n"
+            "Ex:\n"
+            "mercado 80 | compra do mês",
             parse_mode="Markdown"
         )
 
