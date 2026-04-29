@@ -136,46 +136,58 @@ class GoogleSheetsClient:
         self._connect()
 
     def _connect(self):
-        credentials_dict["private_key"] = credentials_dict["private_key"].replace("\\n", "\n")
         """Conecta ao Google Sheets — suporta JSON string (Railway) ou arquivo local"""
         try:
             scopes = ['https://www.googleapis.com/auth/spreadsheets']
-
+            
+            # Log de segurança: informa o que está disponível sem vazar segredos
+            logger.info("🛠️ Verificando configurações do Google Sheets...")
+            logger.info(f"  - GOOGLE_SHEET_ID: {'✅ Presente' if self.sheet_id else '❌ Ausente'}")
+            
             credentials_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
+            logger.info(f"  - GOOGLE_CREDENTIALS_JSON: {'✅ Presente' if credentials_json else '❌ Ausente'}")
+            logger.info(f"  - GOOGLE_CREDENTIALS_PATH: {'✅ Presente' if self.credentials_path else '❌ Ausente'}")
+
             if credentials_json:
-                logger.info("🔑 Usando credenciais via GOOGLE_CREDENTIALS_JSON")
+                logger.info("🔑 Tentando carregar credenciais via GOOGLE_CREDENTIALS_JSON...")
                 try:
                     credentials_dict = json.loads(credentials_json)
+                    
+                    # Correção para chaves privadas com quebras de linha literais em env vars
+                    if "private_key" in credentials_dict:
+                        credentials_dict["private_key"] = credentials_dict["private_key"].replace("\\n", "\n")
+                    
+                    if "client_email" in credentials_dict:
+                        logger.info(f"📧 Service Account Email: {credentials_dict['client_email']}")
+
+                    credentials = Credentials.from_service_account_info(
+                        credentials_dict, scopes=scopes
+                    )
                 except json.JSONDecodeError as e:
-                    raise ValueError(f"GOOGLE_CREDENTIALS_JSON inválido: {e}")
-                credentials = Credentials.from_service_account_info(
-                    credentials_dict, scopes=scopes
-                )
+                    raise RuntimeError(f"Erro ao parsear GOOGLE_CREDENTIALS_JSON: {e}")
 
             elif self.credentials_path:
-                logger.info(f"🔑 Usando credenciais via arquivo: {self.credentials_path}")
+                logger.info(f"🔑 Tentando carregar credenciais via arquivo: {self.credentials_path}")
                 if not os.path.exists(self.credentials_path):
-                    raise FileNotFoundError(
-                        f"Arquivo não encontrado: {self.credentials_path}\n"
-                        "Configure GOOGLE_CREDENTIALS_JSON ou verifique o path."
-                    )
+                    raise RuntimeError(f"Arquivo de credenciais não encontrado: {self.credentials_path}")
+                
                 credentials = Credentials.from_service_account_file(
                     self.credentials_path, scopes=scopes
                 )
 
             else:
-                raise ValueError(
-                    "Nenhuma credencial configurada.\n"
-                    "Defina GOOGLE_CREDENTIALS_JSON ou GOOGLE_CREDENTIALS_PATH no .env"
+                raise RuntimeError(
+                    "Nenhuma fonte de credenciais encontrada. "
+                    "Configure GOOGLE_CREDENTIALS_JSON ou GOOGLE_CREDENTIALS_PATH."
                 )
 
             self.client = gspread.authorize(credentials)
             self.spreadsheet = self.client.open_by_key(self.sheet_id)
             self.worksheet = self.spreadsheet.worksheet(SHEET_NAME)
-            logger.info("✅ Conectado ao Google Sheets")
+            logger.info("✅ Conexão com Google Sheets estabelecida com sucesso!")
 
         except Exception as e:
-            logger.error(f"❌ Erro ao conectar Google Sheets: {str(e)}")
+            logger.error(f"❌ Falha crítica na conexão com Google Sheets: {str(e)}")
             raise
 
     async def get_user_transactions(self, user_id: str) -> List[dict]:
@@ -381,11 +393,14 @@ class GoogleSheetsClient:
 
 
 # Inicializar cliente Google Sheets (global)
-try:
-    gs_client = GoogleSheetsClient(CREDENTIALS_PATH, SHEET_ID)
-except Exception as e:
-    logger.warning(f"⚠️ Google Sheets não disponível: {str(e)}")
-    gs_client = None
+gs_client = None
+if SHEET_ID and (CREDENTIALS_PATH or os.getenv("GOOGLE_CREDENTIALS_JSON")):
+    try:
+        gs_client = GoogleSheetsClient(CREDENTIALS_PATH, SHEET_ID)
+    except Exception:
+        logger.exception("❌ Erro fatal ao inicializar Google Sheets. O bot funcionará com recursos limitados.")
+else:
+    logger.warning("⚠️ Configurações do Google Sheets incompletas. Verifique SHEET_ID e Credenciais.")
 
 
 # ============================================================================
@@ -1337,30 +1352,57 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ============================================================================
+# ERROR HANDLING
+# ============================================================================
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Loga exceções causadas por updates no Telegram."""
+    logger.error("Exception while handling an update:", exc_info=context.error)
+    
+    # Se possível, avisa o usuário que algo deu errado
+    if isinstance(update, Update) and update.effective_message:
+        await update.effective_message.reply_text(
+            "⚠️ Desculpe, ocorreu um erro interno ao processar sua solicitação. "
+            "Os administradores já foram notificados."
+        )
+
+
+# ============================================================================
 # MAIN
 # ============================================================================
 
 def main():
     """Inicializa e roda o bot"""
+    logger.info("🚀 Iniciando FinBot...")
+    
     if not TELEGRAM_TOKEN:
         raise ValueError("TELEGRAM_BOT_TOKEN não configurado!")
-    if not ZAPIER_WEBHOOK_EXPENSE:
-        logger.warning("⚠️ ZAPIER_WEBHOOK_EXPENSE não configurado. CREATE desativado.")
-    if not ZAPIER_WEBHOOK_SALARY:
-        logger.warning("⚠️ ZAPIER_WEBHOOK_SALARY não configurado. SALÁRIO desativado.")
+    
+    # Logs de disponibilidade de Webhooks
+    logger.info(f"  - Zap 1 (Transactions): {'✅ OK' if ZAPIER_WEBHOOK_EXPENSE else '❌ OFF'}")
+    logger.info(f"  - Zap 2 (Salary):       {'✅ OK' if ZAPIER_WEBHOOK_SALARY else '❌ OFF'}")
+    
     if not gs_client:
         logger.warning("⚠️ Google Sheets não conectado. READ e SALÁRIO desativados.")
 
+    # Criação da aplicação
     app = Application.builder().token(TELEGRAM_TOKEN).build()
 
+    # Registro de handlers
     app.add_handler(CommandHandler("start",     start))
-    app.add_handler(CommandHandler("registro",     quick_expense))
+    app.add_handler(CommandHandler("registro",  quick_expense))
     app.add_handler(CommandHandler("historico", command_historico))
     app.add_handler(CommandHandler("salario",   command_salario))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
     app.add_handler(CallbackQueryHandler(button_handler))
+    
+    # Registro do tratador de erros global
+    app.add_error_handler(error_handler)
 
-    logger.info("✅ FinBot iniciando...")
+    logger.info("🤖 Polling iniciado. Pressione Ctrl+C para parar.")
+    logger.info("⚠️ ATENÇÃO: Apenas UMA instância deste bot pode rodar polling por vez no Railway.")
+    
+    # Inicia o polling
     app.run_polling()
 
 

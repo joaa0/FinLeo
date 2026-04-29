@@ -1,363 +1,113 @@
-# FinBot Telegram — Assistente Financeiro com IA
+# 🤖 FinBot — Seu Assistente Financeiro Inteligente
 
-Bot de Telegram para gestão financeira pessoal. Registre gastos e receitas, acompanhe seu histórico, gerencie seu salário e monitore seu saldo mensal — tudo por mensagens no Telegram.
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.10+-blue?style=for-the-badge&logo=python&logoColor=white" alt="Python Version">
+  <img src="https://img.shields.io/badge/Telegram-Bot-blue?style=for-the-badge&logo=telegram&logoColor=white" alt="Telegram Bot">
+  <img src="https://img.shields.io/badge/Google-Sheets-green?style=for-the-badge&logo=google-sheets&logoColor=white" alt="Google Sheets">
+  <img src="https://img.shields.io/badge/Zapier-Integration-orange?style=for-the-badge&logo=zapier&logoColor=white" alt="Zapier">
+</p>
 
----
-
-## 🏗️ Arquitetura
-
-O FinBot opera em três camadas que trabalham juntas:
-
-```
-┌────────────────────────────────────────────────────────────────┐
-│                      TELEGRAM BOT (Python)                     │
-│  • Interface conversacional com inline buttons                 │
-│  • Detecção automática de categoria e tipo (income/expense)    │
-│  • Leitura direta do Google Sheets (histórico, salário, saldo) │
-└──────────┬──────────────────────────────────┬──────────────────┘
-           │ Escrita (webhook POST)           │ Leitura (gspread)
-           ↓                                  ↓
-┌─────────────────────┐        ┌──────────────────────────────┐
-│    ZAPIER (2 Zaps)  │        │       GOOGLE SHEETS          │
-│                     │        │  "Assistente Financeiro"      │
-│  Zap 1 — CRUD de   │───────→│  ┌────────────────────────┐  │
-│  transações         │        │  │ aba: transactions      │  │
-│                     │        │  │ ID | user_id | date |  │  │
-│  Zap 2 — Atualizar  │───────→│  │ description | category│  │
-│  salário do usuário │        │  │ amount | type |        │  │
-│                     │        │  │ created_at | updated_at│  │
-└─────────────────────┘        │  └────────────────────────┘  │
-                               │  ┌────────────────────────┐  │
-                               │  │ aba: users             │  │
-                               │  │ user_id | email |      │  │
-                               │  │ registered_date |      │  │
-                               │  │ salary | updated_at    │  │
-                               │  └────────────────────────┘  │
-                               └──────────────────────────────┘
-```
-
-### Fluxo de dados
-
-| Operação | Caminho |
-|---|---|
-| **Criar transação** | Bot → Zap 1 → transactions |
-| **Atualizar salário** | Bot → Zap 2 → users |
-| **Consultar histórico** | Bot ← Google Sheets via gspread |
-| **Deletar transação** | Bot → Zap 1 → transactions |
-| **Consultar salário/saldo** | Bot ← Google Sheets (leitura direta via `gspread`) |
+O **FinBot** é um assistente financeiro poderoso que vive no seu Telegram. Ele combina a simplicidade de mensagens de chat com a robustez do Google Sheets e automação do Zapier para ajudar você a manter suas finanças sob controle sem esforço.
 
 ---
 
-## ⚙️ O que cada Zap faz
+## ✨ Principais Funcionalidades
 
-### Zap 1 — Transações: CREATE, READ, DELETE e REPORT
-
-Pipeline: **Webhook → Python (normalização) → IA Mistral (validação) → Paths condicionais**
-
-1. **Webhook** recebe JSON com `action`, `description`, `amount`, `category`, `type`, `date`, `user_id`
-2. **Code (Python)** gera ID único, detecta ação por keywords no texto, normaliza categoria e tipo
-3. **AI (Mistral)** faz double-check: preenche campos vazios, extrai valor do texto, infere categoria
-4. **Paths** roteia para 4 branches:
-
-| Branch | Condição | Ação |
-|---|---|---|
-| **CREATE** | `action = "create"` | Insere linha na aba `transactions` |
-| **READ** | `action = "read"` | Busca transações e envia resumo via Telegram |
-| **DELETE** | `action = "delete"` | Remove linha da aba `transactions` |
-| **REPORT** | `action = "report"` | Calcula resumo financeiro e envia por email |
-
-### Zap 2 — Atualização de Salário
-
-Zap 2 é exclusivo para salário. Toda atualização de salário passa pelo Zap 2. Nenhum update_salary deve ser tratado no Zap 1.
-
-Pipeline: **Webhook → Python (validação de entity) → IA Mistral → Paths (user / transaction)**
-
-- Detecta se o payload contém `salary` → `entity = "user"` → **Path A** (atualiza salário na aba `users`)
-- Caso contrário → `entity = "transaction"` → **Path B** (atualiza transação na aba `transactions`)
-- Retorna resposta JSON via webhook com status de confirmação
+*   🚀 **Onboarding Obrigatório**: Cadastro simples de e-mail e salário no primeiro uso.
+*   💸 **Registro Ultrarrápido**: Use `/registro café 5` e pronto! O bot cuida da categoria e data.
+*   📈 **Cálculo de Saldo em Tempo Real**: `Saldo = Salário + Entradas - Gastos`. Sempre atualizado.
+*   📥 **Suporte a Receitas e Despesas**: Identificação inteligente de PIX recebidos, freelance, vendas, etc.
+*   📊 **Histórico Paginado**: Veja suas últimas transações sem sair do Telegram.
+*   🗑️ **Exclusão de Transações**: Interface intuitiva para remover registros incorretos.
+*   📋 **Normalização Inteligente**: Aceita valores como `R$ 50,00`, `50.00` ou `50` e datas em múltiplos formatos (incluindo serial do Excel).
 
 ---
 
-## 📱 Como usar o Bot
+## 🏗️ Arquitetura do Sistema
 
-### Comandos disponíveis
+O FinBot utiliza uma arquitetura híbrida para garantir velocidade e confiabilidade:
 
-| Comando | Descrição |
-|---|---|
-| `/start` | Menu principal com botões interativos |
-| `/registro <desc> <valor>` | Registro rápido (ex: `/registro ifood 39`) |
-| `/historico` | Ver histórico de transações com paginação |
-| `/salario` | Ver salário registrado e saldo do mês |
-
-### Menu principal (`/start`)
-
-```
-🤖 Bem-vindo ao FinBot! 💰
-
-[⚡ Novo Registro]    — registrar gasto ou receita
-[📊 Histórico]       — consultar transações
-[💰 Relatório]       — relatório mensal (em desenvolvimento)
-[💵 Meu Salário]     — ver/atualizar salário e saldo
+```mermaid
+graph TD
+    A[Telegram User] <--> B[Python Bot]
+    B -- Webhook POST --> C[Zapier Webhooks]
+    C -- "Ação (Create/Update/Delete)" --> D[Google Sheets]
+    B -- "Leitura Direta (gspread)" --> D
+    D -- "Dados (Histórico/Salário)" --> B
 ```
 
-### Fluxo de registro de gasto
-
-```
-Usuário: /registro uber 28
-         ↓
-Bot: Confirmando:
-     📝 Descrição: uber
-     💵 Valor: R$ 28.00
-     🏷️ Categoria: Transporte
-     💸 Tipo: Gasto
-     📅 Data: 2026-04-27
-     [✅ Confirmar] [✏️ Editar]
-         ↓
-Usuário clica: [✅ Confirmar]
-         ↓
-Bot: ✅ Transação registrada com sucesso!
-     (payload enviado ao Zap 1)
-```
-
-### Fluxo de salário
-
-```
-Usuário: /salario
-         ↓
-Bot: 💵 Seu Salário
-     💰 Salário registrado: R$ 5.500,00
-     💸 Gastos este mês: R$ 1.230,00
-     🟢 Saldo disponível: R$ 4.270,00
-     [✏️ Registrar / Atualizar]  [⬅️ Voltar]
-         ↓
-Usuário clica: [✏️ Registrar / Atualizar]
-         ↓
-Bot: Qual é o seu salário mensal? Digite o valor.
-         ↓
-Usuário: 6000
-         ↓
-Bot: ✅ Salário registrado com sucesso!
-     (payload enviado ao Zap 2)
-```
+### Onde os dados moram:
+1.  **Aba `transactions`**: Todas as suas movimentações financeiras.
+2.  **Aba `users`**: Seus dados de perfil, e-mail e salário base.
 
 ---
 
-## 🏷️ Detecção automática de categorias
+## 📱 Guia de Uso
 
-O bot detecta categoria e tipo (`expense`/`income`) automaticamente por keywords:
+### 🆕 Primeiro Acesso (Onboarding)
+Ao enviar `/start` pela primeira vez, o bot guiará você:
+1.  **E-mail**: Informe seu e-mail para contato/relatórios.
+2.  **Salário**: Informe quanto você ganha por mês.
+*O acesso ao menu principal só é liberado após concluir estes passos.*
 
-| Categoria | Keywords | Tipo |
-|---|---|---|
-| Alimentação | ifood, uber eats, rappi, pizza, restaurante, lanche, café | expense |
-| Transporte | uber, 99, taxi, passagem, combustível, gasolina | expense |
-| Entretenimento | netflix, spotify, cinema, jogo | expense |
-| Saúde | farmácia, médico, dentista, vitamina | expense |
-| Educação | curso, livro, escola | expense |
-| Compras | mercado, supermercado, roupa, eletrônico | expense |
-| Trabalho | salário, recebi, ganhei, bônus, freelance, venda, renda | **income** |
-
-Se nenhuma keyword for encontrada, usa **"Outros"** como categoria e **"expense"** como tipo.
+### 💵 Resumo Financeiro (`/salario`)
+O bot exibe um resumo completo do seu mês:
+> 💵 **Resumo do Mês**
+> 
+> 💰 Salário registrado: R$ 5.000,00
+> 📥 Entradas este mês: R$ 800,00
+> 💸 Gastos do mês: R$ 1.200,00
+> 🟢 Saldo disponível: R$ 4.600,00
 
 ---
 
-## 🚀 Quick Start
+## 🏷️ Categorização Inteligente (Keywords)
 
-### 1. Pré-requisitos
+O bot detecta automaticamente o tipo e categoria com base no que você escreve:
 
-- Python 3.10+
-- Bot do Telegram (criar via [@BotFather](https://t.me/botfather))
-- Conta no [Zapier](https://zapier.com) com 2 Zaps configurados (webhooks)
-- Planilha Google Sheets com as abas `transactions` e `users`
-- Credenciais de Service Account do Google Cloud (para leitura via `gspread`)
+| Tipo | Categoria | Keywords Exemplos |
+| :--- | :--- | :--- |
+| **Gasto** | Alimentação | `ifood, burger king, restaurante, mercado` |
+| **Gasto** | Transporte | `uber, 99, gasolina, metro` |
+| **Receita** | Trabalho | `salário, pix recebido, freelance, venda` |
+| **Gasto** | Saúde | `farmácia, médico, dentista` |
 
-### 2. Clonar e configurar
+---
 
+## ⚙️ Configuração e Instalação
+
+### 1. Requisitos
+*   Python 3.10+
+*   Google Cloud Service Account (JSON)
+*   2 Webhooks no Zapier (Zap 1: Transações, Zap 2: Salário)
+
+### 2. Variáveis de Ambiente (`.env`)
 ```bash
-git clone <repo-url> finbot && cd finbot
-
-# Criar ambiente virtual
-python -m venv venv
-source venv/bin/activate   # Linux/Mac
-# venv\Scripts\activate    # Windows
-
-# Instalar dependências
-pip install -r requirements.txt
-```
-
-### 3. Configurar variáveis de ambiente
-
-```bash
-cp .env.example .env
-nano .env   # ou o editor de sua preferência
-```
-
-Preencha os valores obrigatórios:
-
-```bash
-# Token do bot (obtenha via @BotFather)
 TELEGRAM_BOT_TOKEN=seu_token_aqui
-
-# Webhooks do Zapier
-ZAPIER_WEBHOOK_EXPENSE=https://hooks.zapier.com/hooks/catch/xxxxx/zap1/
-ZAPIER_WEBHOOK_SALARY=https://hooks.zapier.com/hooks/catch/xxxxx/zap2/
-
-# Google Sheets
-GOOGLE_SHEET_ID=id_da_sua_planilha
-GOOGLE_CREDENTIALS_PATH=credentials/sua-credencial.json
-# OU (para deploy em cloud):
-# GOOGLE_CREDENTIALS_JSON={"type":"service_account",...}
-
-# (Opcional) Nomes das abas
-SHEET_NAME=transactions
-USERS_SHEET_NAME=users
+ZAPIER_WEBHOOK_EXPENSE=url_do_zap_1
+ZAPIER_WEBHOOK_SALARY=url_do_zap_2
+GOOGLE_SHEET_ID=id_da_planilha
+GOOGLE_CREDENTIALS_PATH=caminho/para/credentials.json
+# USERS_SHEET_NAME=users (opcional)
 ```
 
-### 4. Google Sheets — Estrutura esperada
-
-**Aba `transactions`:**
-
-| A | B | C | D | E | F | G | H | I |
-|---|---|---|---|---|---|---|---|---|
-| id | user_id | date | description | category | amount | type | created_at | updated_at |
-
-**Aba `users`:**
-
-| A | B | C | D | E |
-|---|---|---|---|---|
-| user_id | email | registered_date | salary | updated_at |
-
-### 5. Rodar
-
+### 3. Execução
 ```bash
+pip install -r requirements.txt
 python finbot_telegram.py
 ```
 
-Você verá: `✅ FinBot iniciando...`
-
 ---
 
-## 🚢 Deploy
+## 🚢 Deploy no Railway / Cloud
 
-### Railway (recomendado)
-
-O projeto inclui um `Procfile` configurado:
+Para deploy em nuvem, você pode usar a variável `GOOGLE_CREDENTIALS_JSON` colando o conteúdo do seu arquivo JSON de credenciais. O bot tratará automaticamente as quebras de linha da chave privada.
 
 ```
 worker: python finbot_telegram.py
 ```
 
-```bash
-# Instalar Railway CLI
-npm install -g @railway/cli
-
-# Login e deploy
-railway login
-railway up
-```
-
-> **Dica:** No Railway, use `GOOGLE_CREDENTIALS_JSON` (colando o JSON completo) em vez de um arquivo de credenciais. O bot detecta automaticamente qual variável usar.
-
-### Heroku
-
-```bash
-heroku create finbot-app
-heroku config:set TELEGRAM_BOT_TOKEN=xxx ZAPIER_WEBHOOK_EXPENSE=xxx ZAPIER_WEBHOOK_SALARY=xxx GOOGLE_SHEET_ID=xxx GOOGLE_CREDENTIALS_JSON='{"type":"service_account",...}'
-git push heroku main
-```
-
----
-
-## 📁 Estrutura do projeto
-
-```
-finbot/
-├── finbot_telegram.py        # Código principal do bot
-├── requirements.txt           # Dependências Python
-├── .env.example               # Template de variáveis de ambiente
-├── .env                       # Variáveis reais (não versionado)
-├── Procfile                   # Config de deploy (Railway/Heroku)
-├── credentials/               # Credenciais Google (não versionado)
-├── docs/
-│   └── telegram_bot_spec.md   # Especificação técnica original
-├── zap1_funcionamento.md      # Documentação do Zap 1 (CRUD)
-└── zap2_funcionamento.md      # Documentação do Zap 2 (Salário)
-```
-
----
-
-## 🔧 Dependências
-
-```
-python-telegram-bot==21.1
-requests==2.31.0
-python-dotenv==1.0.0
-gspread==5.12.0
-google-auth (instalado como dependência do gspread)
-```
-
----
-
-## 📊 Payload enviado ao Zapier
-
-### Zap 1 — Transação (CREATE)
-
-```json
-{
-  "action": "create",
-  "user_id": "7500965215",
-  "description": "ifood",
-  "amount": 39.0,
-  "category": "Alimentação",
-  "type": "expense",
-  "date": "2026-04-27",
-  "_source": "telegram_bot",
-  "_timestamp": "2026-04-27T14:30:00"
-}
-```
-
-### Zap 2 — Salário (UPDATE)
-
-```json
-{
-  "action": "update_salary",
-  "user_id": "7500965215",
-  "salary": 5500.0,
-  "_source": "telegram_bot",
-  "_timestamp": "2026-04-27T14:35:00"
-}
-```
-
----
-
-## 🛠️ Troubleshooting
-
-| Problema | Solução |
-|---|---|
-| `TELEGRAM_BOT_TOKEN não configurado!` | Verifique se `.env` existe e contém o token correto |
-| Bot não responde a `/start` | Confirme que o token está certo e o processo está rodando |
-| `❌ Erro: Conexão com Google Sheets não disponível` | Verifique `GOOGLE_CREDENTIALS_PATH` ou `GOOGLE_CREDENTIALS_JSON` e `GOOGLE_SHEET_ID` |
-| Webhook timeout no Zapier | Teste o webhook manualmente; o timeout padrão é 10s |
-| Transação não aparece no Sheets | Confirme que o Zap está publicado e ativo no Zapier |
-| Salário não atualiza | Verifique se `ZAPIER_WEBHOOK_SALARY` está configurado e o Zap 2 está ativo |
-
----
-
-## 📈 Status atual
-
-- ✅ Registro de gastos e receitas (CREATE via Zap 1)
-- ✅ Histórico paginado com leitura direta do Google Sheets
-- ✅ Gerenciamento de salário (consulta + atualização via Zap 2)
-- ✅ Cálculo automático do saldo mensal (salário − despesas do mês)
-- ✅ Detecção automática de categoria e tipo por keywords
-- ✅ Suporte a receitas (`income`) e despesas (`expense`)
-- ✅ Deploy em cloud (Railway/Heroku) com credenciais via variável de ambiente
-- 🚧 Relatório mensal (em desenvolvimento)
-- 🚧 DELETE via Zap 1 configurado/pendente de exposição no bot
-- 🚧 READ via Zap 1 configurado, não exposto no bot ainda
-- 🚧 REPORT via email (branch configurada no Zap 1, não exposta no bot ainda)
-
 ---
 
 ## 📝 Licença
-
-Uso livre para projetos pessoais e comerciais.
+Este projeto é de uso livre. Sinta-se à vontade para clonar e adaptar para suas necessidades financeiras! 🚀
