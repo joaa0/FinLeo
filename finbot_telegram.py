@@ -29,6 +29,7 @@ print("ENV DEBUG ↓↓↓")
 print("HAS JSON:", os.getenv("GOOGLE_CREDENTIALS_JSON") is not None)
 print("LEN JSON:", len(os.getenv("GOOGLE_CREDENTIALS_JSON") or ""))
 print("START JSON:", str(os.getenv("GOOGLE_CREDENTIALS_JSON"))[:50])
+print("SHEET_ID:", os.getenv("GOOGLE_SHEET_ID"))
 
 # Google Sheets
 try:
