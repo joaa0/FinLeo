@@ -24,6 +24,12 @@ from telegram.ext import (
 )
 from dotenv import load_dotenv
 
+
+print("ENV DEBUG ↓↓↓")
+print("HAS JSON:", os.getenv("GOOGLE_CREDENTIALS_JSON") is not None)
+print("LEN JSON:", len(os.getenv("GOOGLE_CREDENTIALS_JSON") or ""))
+print("START JSON:", str(os.getenv("GOOGLE_CREDENTIALS_JSON"))[:50])
+
 # Google Sheets
 try:
     import gspread
@@ -1473,3 +1479,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+print("SHEET_ID:", bool(os.getenv("GOOGLE_SHEET_ID")))
+print("CREDENTIALS_JSON:", bool(os.getenv("GOOGLE_CREDENTIALS_JSON")))
