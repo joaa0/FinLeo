@@ -303,9 +303,12 @@ class GoogleSheetsClient:
                     return True
 
             # Usuário novo — append
+            next_row = len(await asyncio.to_thread(ws.get_all_values)) + 1
+
             await asyncio.to_thread(
-                ws.append_row,
-                [target, email, today, salary, now]
+                ws.update,
+                f"A{next_row}:E{next_row}",
+                [[target, email, today, salary, now]]
             )
             logger.info(f"[ONBOARDING] Nova linha criada para user_id={target!r}")
             return True
