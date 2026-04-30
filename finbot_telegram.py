@@ -280,8 +280,8 @@ class GoogleSheetsClient:
                 row = row + [""] * (5 - len(row))
                 uid, old_email, registered_date, old_salary, old_updated_at = row[:5]
 
-            if str(uid).strip() == target:
-                await asyncio.to_thread(
+                if str(uid).strip() == target:
+                    await asyncio.to_thread(
                     ws.update,
                     f"A{i}:E{i}",
                     [[
