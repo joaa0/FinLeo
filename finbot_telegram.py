@@ -247,29 +247,20 @@ class GoogleSheetsClient:
             return []
 
     async def user_exists(self, user_id: str) -> bool:
-        """Verifica se user_id já está cadastrado na aba users."""
         target = str(user_id).strip()
+
         try:
-            ws = await asyncio.to_thread(
-                self.spreadsheet.worksheet, SHEET_USERS
-            )
-            all_rows = await asyncio.to_thread(ws.get_all_records)
+            ws = await asyncio.to_thread(self.spreadsheet.worksheet, SHEET_USERS)
+            rows = await asyncio.to_thread(ws.get, "A:E")
 
-            for row in all_rows:
-                uid = str(row.get('user_id', '')).strip()
-                salary_raw = str(row.get('salary', '')).strip()
+            for row in rows[1:]:
+                row = row + [""] * (5 - len(row))
+                uid, email, registered_date, salary_raw, updated_at = row[:5]
 
-                if uid == target:
-                    # Considera cadastrado se tiver salário preenchido.
-                    # Email vazio não bloqueia usuário antigo.
-                    if salary_raw and salary_raw not in ('0', '0.0', ''):
-                        logger.debug(f"[ONBOARDING] user_id={target!r} já cadastrado")
-                        return True
+                if str(uid).strip() == target:
+                    salary_raw = str(salary_raw).strip()
+                    return bool(salary_raw and salary_raw not in ("0", "0.0", ""))
 
-                    logger.debug(f"[ONBOARDING] user_id={target!r} incompleto — refaz onboarding")
-                    return False
-
-            logger.debug(f"[ONBOARDING] user_id={target!r} não encontrado")
             return False
 
         except Exception as e:
@@ -277,41 +268,44 @@ class GoogleSheetsClient:
             return False
 
     async def create_user(self, user_id: str, email: str, salary: float) -> bool:
-        """Cria ou atualiza linha do usuário na aba users.
-
-        Estrutura: user_id | email | registered_date | salary | updated_at
-        """
         target = str(user_id).strip()
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         today = datetime.now().strftime("%Y-%m-%d")
+
         try:
-            ws = await asyncio.to_thread(
-                self.spreadsheet.worksheet, SHEET_USERS
-            )
-            all_rows = await asyncio.to_thread(ws.get_all_records)
+            ws = await asyncio.to_thread(self.spreadsheet.worksheet, SHEET_USERS)
+            rows = await asyncio.to_thread(ws.get, "A:E")
 
-            # Procura linha existente para atualizar
-            for i, row in enumerate(all_rows):
-                if str(row.get('user_id', '')).strip() == target:
-                    row_number = i + 2  # +1 cabeçalho, +1 base 1
-                    await asyncio.to_thread(
-                        ws.update,
-                        f"A{row_number}:E{row_number}",
-                        [[target, email, row.get('registered_date', today), salary, now]]
-                    )
-                    logger.info(f"[ONBOARDING] Linha atualizada para user_id={target!r}")
-                    return True
+            for i, row in enumerate(rows[1:], start=2):
+                row = row + [""] * (5 - len(row))
+                uid, old_email, registered_date, old_salary, old_updated_at = row[:5]
 
-            # Usuário novo — append
-            next_row = len(await asyncio.to_thread(ws.get_all_values)) + 1
+            if str(uid).strip() == target:
+                await asyncio.to_thread(
+                    ws.update,
+                    f"A{i}:E{i}",
+                    [[
+                        target,
+                        email or old_email,
+                        registered_date or today,
+                        salary,
+                        now
+                    ]]
+                )
+                logger.info(f"[ONBOARDING] Linha atualizada para user_id={target!r}")
+                return True
+
+            next_row = len(rows) + 1
 
             await asyncio.to_thread(
                 ws.update,
                 f"A{next_row}:E{next_row}",
                 [[target, email, today, salary, now]]
             )
+
             logger.info(f"[ONBOARDING] Nova linha criada para user_id={target!r}")
             return True
+
         except Exception as e:
             logger.error(f"❌ Erro ao criar/atualizar usuário: {e}")
             return False
