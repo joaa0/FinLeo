@@ -254,19 +254,24 @@ class GoogleSheetsClient:
                 self.spreadsheet.worksheet, SHEET_USERS
             )
             all_rows = await asyncio.to_thread(ws.get_all_records)
+
             for row in all_rows:
                 uid = str(row.get('user_id', '')).strip()
-                email = str(row.get('email', '')).strip()
                 salary_raw = str(row.get('salary', '')).strip()
+
                 if uid == target:
-                    # Considera cadastrado se tem email E salário preenchidos
-                    if email and salary_raw and salary_raw not in ('0', '0.0', ''):
+                    # Considera cadastrado se tiver salário preenchido.
+                    # Email vazio não bloqueia usuário antigo.
+                    if salary_raw and salary_raw not in ('0', '0.0', ''):
                         logger.debug(f"[ONBOARDING] user_id={target!r} já cadastrado")
                         return True
+
                     logger.debug(f"[ONBOARDING] user_id={target!r} incompleto — refaz onboarding")
                     return False
+
             logger.debug(f"[ONBOARDING] user_id={target!r} não encontrado")
             return False
+
         except Exception as e:
             logger.error(f"❌ Erro ao verificar usuário: {e}")
             return False
