@@ -6,9 +6,18 @@
 
 ## 1. Visão Geral
 
-FinBot é um assistente financeiro pessoal via Telegram que permite registrar e consultar transações financeiras usando linguagem natural. O sistema combina um bot Python com workflows de automação no Zapier e Google Sheets como camada de persistência.
+FinBot é um assistente financeiro pessoal via Telegram que permite registrar, consultar e excluir transações financeiras usando linguagem natural simples. O sistema combina um bot Python, workflows no Zapier e Google Sheets como camada de persistência.
 
-**Objetivo principal:** permitir que o usuário registre um gasto em menos de 10 segundos, sem abrir planilhas ou apps externos.
+**Objetivo principal:** permitir que o usuário registre um gasto ou recebimento em menos de 10 segundos, sem abrir planilhas ou aplicativos externos.
+
+**Estado atual do sistema:**
+
+- Bot Telegram em Python funcionando como interface principal.
+- Google Sheets usado como banco simplificado.
+- Zap 1 responsável pelas operações de transação: `CREATE`, `READ`, `DELETE` e `REPORT`.
+- Zap 2 responsável apenas por atualização de salário do usuário.
+- Relatório por e-mail já existe no Zap 1, mas ainda é um resumo operacional simples.
+- Relatório com insights comportamentais por IA ainda não foi implementado.
 
 ---
 
@@ -16,66 +25,109 @@ FinBot é um assistente financeiro pessoal via Telegram que permite registrar e 
 
 ### 2.1 Bot Telegram (`finbot_telegram.py`)
 
-Responsável por toda a interface com o usuário. Gerencia estados de conversa, roteamento de mensagens e chamadas às APIs externas.
+Responsável por toda a interface com o usuário. Gerencia estados de conversa, roteamento de mensagens, leitura direta no Google Sheets e chamadas aos webhooks do Zapier.
 
-**Tecnologia:** Python 3.10+ com `python-telegram-bot` v20+
+**Tecnologia:** Python 3.10+ com `python-telegram-bot`.
 
 **Responsabilidades:**
-- Receber e processar mensagens e cliques de botões
-- Manter estado de conversa por usuário via `context.user_data`
-- Ler transações e salário diretamente do Google Sheets via `gspread`
-- Enviar payloads para os dois webhooks do Zapier
 
-**O que o bot NÃO faz:**
-- Escrever transações diretamente no Sheets (isso é responsabilidade do Zap 1)
-- Processar ou validar dados com IA (responsabilidade do Zap 1)
+- Receber comandos, mensagens e cliques de botões.
+- Controlar estado por usuário via `context.user_data`.
+- Validar onboarding inicial: e-mail e salário.
+- Ler histórico e salário diretamente do Google Sheets via `gspread`.
+- Calcular resumo mensal localmente: `saldo = salário + entradas - gastos`.
+- Enviar payloads para os webhooks do Zapier:
+  - `ZAPIER_WEBHOOK_EXPENSE` → Zap 1.
+  - `ZAPIER_WEBHOOK_SALARY` → Zap 2.
+- Exibir menu, confirmação de registro, histórico paginado, resumo de salário e fluxo de exclusão.
+
+**O que o bot não deve fazer:**
+
+- Escrever transações diretamente na aba `transactions`.
+- Executar a deleção diretamente no Google Sheets.
+- Fazer análise financeira avançada com IA.
+- Substituir os workflows do Zapier.
 
 ---
 
-### 2.2 Zap 1 — CRUD de Transações
+### 2.2 Zap 1 — Transações e Relatórios
 
-Webhook de entrada para todas as operações de criação, leitura, atualização e deleção de transações.
+Webhook principal para operações ligadas à aba `transactions` e ao envio de relatório por e-mail.
 
-**Trigger:** `POST` no webhook do Zapier com payload JSON
+**Trigger:** `POST` no webhook do Zapier com payload JSON.
 
-**Pipeline:**
+**Estrutura baseada no workflow atual:**
 
+```text
+1. Webhooks by Zapier — Catch Hook
+2. Code by Zapier — Run Python
+3. Paths — Split into paths
+    ├── CREATE
+    │   ├── Path conditions
+    │   ├── Code by Zapier — Run Python
+    │   ├── Code by Zapier — Run Python
+    │   └── Google Sheets — Create Spreadsheet Row
+    │
+    ├── READ
+    │   ├── Path conditions
+    │   ├── Google Sheets — Lookup Spreadsheet Rows
+    │   ├── Code by Zapier — Run Python
+    │   ├── Code by Zapier — Run Python
+    │   └── Telegram — Send Message
+    │
+    ├── DELETE
+    │   ├── Path conditions
+    │   ├── Google Sheets — Lookup Spreadsheet Row
+    │   └── Google Sheets — Delete Spreadsheet Row(s)
+    │
+    └── REPORT
+        ├── Path conditions
+        ├── Google Sheets — Lookup Spreadsheet Rows
+        ├── Code by Zapier — Run Python
+        ├── Google Sheets — Lookup Spreadsheet Row
+        └── Email by Zapier — Send Outbound Email
 ```
-Webhook (catch hook)
-    → Python (normaliza campos, gera ID, detecta action)
-    → Claude AI via Mistral (valida e normaliza com IA)
-    → Parallel Paths (roteia por action)
-        ├── CREATE  → Google Sheets (append row)
-        ├── READ    → Google Sheets (lookup) → Telegram (mensagem)
-        ├── UPDATE  → Google Sheets (lookup + update row)
-        ├── DELETE  → Google Sheets (lookup + delete row)
-        └── REPORT  → Google Sheets (lookup) → Python (calcula resumo) → Email
-```
 
-**Payload esperado (CREATE):**
+**Ações suportadas:**
 
-```json
-{
-  "action": "create",
-  "user_id": "7500965215",
-  "description": "ifood",
-  "details": "Combo com entrega",
-  "amount": 39.0,
-  "category": "Alimentação",
-  "type": "expense",
-  "date": "2026-04-17",
-  "_source": "telegram_bot",
-  "_timestamp": "2026-04-17T14:30:00.000000"
-}
-```
+| Action | Status | Responsabilidade |
+|---|---:|---|
+| `create` | Implementado | Inserir nova transação na aba `transactions` |
+| `read` | Implementado/legado | Buscar transações e enviar resposta via Telegram pelo Zap |
+| `delete` | Implementado | Buscar transação por `transaction_id` e deletar linha |
+| `report` | Parcial | Gerar resumo financeiro e enviar e-mail |
+| `update` | Removido do fluxo atual | Não deve ser tratado como path ativo no Zap 1 neste estágio |
+
+> Observação: o bot atualmente também faz leitura direta via `gspread` para histórico e salário. O path `READ` no Zap 1 pode existir como fluxo legado ou complementar, mas a leitura principal do bot não depende dele.
 
 ---
 
 ### 2.3 Zap 2 — Atualização de Salário
 
-Webhook dedicado exclusivamente ao registro e atualização do salário do usuário na aba `users`.
+Webhook dedicado exclusivamente ao registro ou atualização de salário do usuário na aba `users`.
 
-**Trigger:** `POST` no webhook com `action: update_salary`
+**Trigger:** `POST` no webhook com `action: update_salary`.
+
+**Estrutura atual recomendada:**
+
+```text
+1. Webhooks by Zapier — Catch Hook
+2. Code by Zapier — Run Python
+3. Filter — entity exactly matches user
+4. Google Sheets — Lookup Spreadsheet Row (users)
+5. Google Sheets — Update Spreadsheet Row (users)
+6. Webhook Response (opcional)
+```
+
+**Regra importante:** o Zap 2 não deve ter múltiplos paths. O antigo Path B foi apagado e não deve voltar.
+
+**O Zap 2 não deve conter:**
+
+- Paths paralelos.
+- IA.
+- Lógica de transação.
+- Campos como `description`, `category`, `amount`, `type`, `id` ou `transaction_id`.
+- Criação automática de linha via `Create if not found` no Lookup.
 
 **Payload esperado:**
 
@@ -85,214 +137,466 @@ Webhook dedicado exclusivamente ao registro e atualização do salário do usuá
   "user_id": "7500965215",
   "salary": 3500.00,
   "_source": "telegram_bot",
-  "_timestamp": "2026-04-17T14:30:00.000000"
+  "_timestamp": "2026-04-29T21:00:00"
 }
 ```
 
-**Lógica no Sheets:**
-- Se o `user_id` já existe na aba `users`: atualiza colunas `salary` (D) e `updated_at` (E)
-- Se não existe: cria nova linha com `user_id` na col A, `salary` na col D
+**Mapeamento esperado na aba `users`:**
 
----
-
-### 2.4 Google Sheets (Banco de Dados)
-
-Atua como banco de dados relacional simplificado. Cada aba é tratada como uma tabela.
-
-**Abas:**
-
-| Aba | Função |
+| Coluna | Campo |
 |---|---|
-| `transactions` | Armazena todas as transações financeiras |
-| `users` | Armazena dados de usuário (email, salário) |
-| `categories` | Lista canônica de categorias *(não implementada)* |
-| `logs` | Auditoria de operações *(não implementada)* |
+| A | `user_id` |
+| B | `email` |
+| C | `registered_date` |
+| D | `salary` |
+| E | `updated_at` |
+
+No update de salário, mapear apenas:
+
+- `salary` → coluna D.
+- `updated_at` → coluna E.
+
+Não remapear `user_id`, `email` ou `registered_date` durante update simples de salário.
 
 ---
 
-## 3. Fluxo de Dados
+### 2.4 Google Sheets
 
-### 3.1 CREATE — Registrar Gasto
+Atua como banco de dados simplificado. Cada aba funciona como uma tabela.
 
+| Aba | Função | Status |
+|---|---|---|
+| `transactions` | Armazena transações financeiras | Implementada |
+| `users` | Armazena e-mail, salário e datas de usuário | Implementada |
+| `categories` | Lista canônica de categorias | Planejada/não implementada |
+| `logs` | Auditoria de operações | Planejada/não implementada |
+
+**Estrutura esperada da aba `transactions`:**
+
+| Coluna | Campo | Observação |
+|---|---|---|
+| A | `id` | ID único da transação |
+| B | `user_id` | ID numérico do Telegram |
+| C | `date` | Data da transação |
+| D | `description` | Descrição curta |
+| E | `category` | Categoria normalizada |
+| F | `amount` | Valor |
+| G | `type` | `expense` ou `income` |
+| H | `created_at` | Data/hora de criação |
+| I | `updated_at` | Data/hora de atualização |
+| J | `details` | Observações opcionais |
+
+---
+
+## 3. Fluxos de Dados
+
+### 3.1 Onboarding
+
+```text
+Usuário envia /start
+    → Bot verifica se user_id existe na aba users
+    → Se não existe ou não tem salário válido:
+        → pede e-mail
+        → valida e-mail
+        → pede salário inicial
+        → cria ou atualiza usuário na aba users via gspread
+        → libera menu principal
+    → Se já existe:
+        → exibe menu principal
 ```
-Usuário digita "ifood 39" ou "ifood 39 | sem cebola" no Telegram
-    → finbot_telegram.py: parse_quick_expense() extrai descrição, valor e details opcional
-    → finbot_telegram.py: detect_category() detecta categoria por keyword
-    → finbot_telegram.py: show_confirmation() exibe preview
+
+**Observação:** o onboarding inicial pode criar/atualizar o usuário diretamente pelo bot via `gspread`. O Zap 2 continua sendo usado para atualização posterior de salário pelo menu.
+
+---
+
+### 3.2 CREATE — Registrar transação
+
+```text
+Usuário digita:
+    /registro ifood 39
+ou:
+    /registro mercado 84 | compra semanal com arroz e carne
+
+Bot:
+    → parse_quick_expense() extrai description, amount e details
+    → detect_category() define category e type por keyword
+    → show_confirmation() exibe preview
+    → usuário confirma
+    → send_expense_to_zapier() envia payload para Zap 1
+
+Zap 1:
+    → normaliza campos
+    → roteia para path CREATE
+    → insere nova linha na aba transactions
+
+Bot:
+    → invalida cache local
+    → mostra confirmação de sucesso
+```
+
+**Payload enviado pelo bot:**
+
+```json
+{
+  "action": "create",
+  "user_id": "7500965215",
+  "description": "mercado",
+  "details": "compra semanal com arroz e carne",
+  "amount": 84.0,
+  "category": "Compras",
+  "type": "expense",
+  "date": "2026-04-29",
+  "_source": "telegram_bot",
+  "_timestamp": "2026-04-29T21:00:00",
+  "_normalized": true
+}
+```
+
+---
+
+### 3.3 READ — Histórico
+
+Fluxo principal atual:
+
+```text
+Usuário clica em "📊 Histórico" ou usa /historico
+    → Bot chama gs_client.get_user_transactions(user_id)
+    → gspread lê rows da aba transactions
+    → Bot filtra por user_id exato
+    → format_transactions() pagina e formata
+    → Telegram exibe histórico com navegação
+```
+
+O bot usa cache local temporário para reduzir leituras repetidas no Google Sheets.
+
+---
+
+### 3.4 DELETE — Excluir transação
+
+```text
+Usuário clica em "🗑️ Deletar Transação"
+    → Bot lê as últimas transações do usuário
+    → Exibe até 10 transações recentes como botões
+    → Usuário escolhe uma transação
+    → Bot mostra tela de confirmação
     → Usuário confirma
-    → finbot_telegram.py: send_expense_to_zapier() envia POST para ZAPIER_WEBHOOK_EXPENSE
-    → Zap 1: Python normaliza + Claude valida
-    → Zap 1: insere linha na aba transactions
-    → finbot_telegram.py: exibe confirmação de sucesso
+    → Bot envia payload para Zap 1 com action=delete e transaction_id
+    → Zap 1 busca a linha por id
+    → Zap 1 deleta a linha no Google Sheets
+    → Bot invalida cache e confirma exclusão
 ```
 
-### 3.2 READ — Ver Histórico
+**Payload de delete:**
 
-```
-Usuário clica em "📊 Histórico"
-    → finbot_telegram.py: show_history() chama gs_client.get_user_transactions(user_id)
-    → gspread: lê todas as linhas da aba transactions
-    → finbot_telegram.py: filtra por user_id
-    → finbot_telegram.py: format_transactions() pagina e formata
-    → Telegram: exibe lista com navegação
+```json
+{
+  "action": "delete",
+  "user_id": "7500965215",
+  "transaction_id": "7500965215_20260429152343",
+  "_source": "telegram_bot",
+  "_timestamp": "2026-04-29T21:30:00"
+}
 ```
 
-### 3.3 SALARY — Registrar Salário
+**Regra de segurança lógica:** o bot só permite selecionar transações carregadas para o próprio `user_id`. O Zap 1 deve buscar a linha pelo `id` da transação.
 
-```
+---
+
+### 3.5 SALARY — Atualizar salário
+
+```text
 Usuário clica em "💵 Meu Salário"
-    → finbot_telegram.py: show_salary_menu() lê salary + expenses do Sheets
-    → Exibe: salário, gastos do mês, saldo disponível
-    → Usuário clica "✏️ Registrar / Atualizar"
-    → finbot_telegram.py: state = AWAITING_SALARY
-    → Usuário digita o valor
-    → finbot_telegram.py: process_salary_input() valida e envia POST para ZAPIER_WEBHOOK_SALARY
-    → Zap 2: cria ou atualiza linha na aba users
-    → finbot_telegram.py: exibe confirmação
+    → Bot lê salário em users
+    → Bot calcula entradas e gastos do mês em transactions
+    → Exibe resumo do mês
+    → Usuário clica em "Registrar / Atualizar"
+    → Bot recebe novo valor
+    → Bot envia payload para Zap 2
+    → Zap 2 faz lookup do user_id em users
+    → Zap 2 atualiza salary e updated_at
+    → Bot invalida cache e confirma
 ```
+
+**Cálculo exibido pelo bot:**
+
+```text
+saldo disponível = salário registrado + entradas do mês - gastos do mês
+```
+
+---
+
+### 3.6 REPORT — Relatório por e-mail
+
+Estado atual:
+
+```text
+Usuário aciona report
+    → Zap 1 entra no path REPORT
+    → Busca transações/dados do usuário no Google Sheets
+    → Code Step calcula resumo financeiro básico
+    → Lookup busca o e-mail do usuário
+    → Email by Zapier envia e-mail
+```
+
+**Status:** parcialmente implementado.
+
+**O que já existe:**
+
+- Envio de e-mail via Email by Zapier.
+- Cálculo básico de receitas, despesas, saldo, categorias e últimas transações.
+
+**O que ainda não existe:**
+
+- Análise comportamental avançada por IA.
+- Cruzamento profundo entre salário, categorias, recorrência e padrões humanos.
+- Geração de insights fortes com justificativa.
+- Recomendações como:
+  - gasto alto em delivery apesar de gasto alto em mercado;
+  - transporte privado acima de alternativa pública estimada;
+  - recorrências pequenas que somam valor relevante;
+  - categorias que cresceram muito em relação ao padrão do usuário;
+  - alertas de risco financeiro baseados em proporção da renda.
+
+**Meta futura para o REPORT com IA:**
+
+```text
+REPORT atual:
+    dados tabulares → resumo numérico → e-mail
+
+REPORT desejado:
+    dados tabulares + salário + histórico + padrões
+        → IA analisa comportamento financeiro
+        → gera diagnóstico, hipóteses e sugestões acionáveis
+        → e-mail com insights personalizados
+```
+
+A IA do report deve ser tratada como etapa futura do Zap 1, não como responsabilidade do bot Telegram.
 
 ---
 
 ## 4. Gerenciamento de Estado
 
-O bot usa `context.user_data` do `python-telegram-bot` para manter estado por usuário entre mensagens. Não há persistência de estado — se o bot reiniciar, os estados são perdidos.
+O bot usa `context.user_data` para controlar o fluxo de conversa por usuário.
 
-**Estados definidos:**
+**Estados atuais:**
 
 ```python
-MENU               = 0  # estado padrão (sem estado ativo)
-AWAITING_EXPENSE   = 1  # aguardando "descrição valor" via menu
-SELECTING_CATEGORY = 2  # reservado (não implementado)
-CONFIRMING         = 3  # reservado (não implementado)
-AWAITING_SALARY    = 4  # aguardando valor do salário
+MENU                       = 0
+AWAITING_EXPENSE           = 1
+SELECTING_CATEGORY         = 2
+CONFIRMING                 = 3
+AWAITING_SALARY            = 4
+AWAITING_EMAIL             = 5
+AWAITING_ONBOARDING_SALARY = 6
 ```
 
-**Chaves usadas em `context.user_data`:**
+**Chaves relevantes em `context.user_data`:**
 
-| Chave | Tipo | Descrição |
+| Chave | Tipo | Função |
 |---|---|---|
-| `state` | int | Estado atual da conversa |
-| `pending_expense` | dict | Gasto aguardando confirmação |
+| `state` | int | Estado atual do fluxo |
+| `pending_expense` | dict | Transação aguardando confirmação |
 | `history_page` | int | Página atual do histórico |
-| `history_transactions` | list | Cache das transações carregadas |
+| `history_transactions` | list | Cache de transações do histórico |
 | `history_total_pages` | int | Total de páginas do histórico |
+| `onboarding_email` | string | E-mail temporário antes de salvar cadastro |
+| `_cache` | dict | Cache local com TTL para leituras do Sheets |
+
+**Limitação:** o estado fica em memória. Se o processo reiniciar, fluxos em andamento são perdidos.
 
 ---
 
 ## 5. Variáveis de Ambiente
 
-| Variável | Obrigatória | Descrição |
+| Variável | Obrigatória | Uso |
+|---|---:|---|
+| `TELEGRAM_BOT_TOKEN` | Sim | Token do bot Telegram |
+| `ZAPIER_WEBHOOK_EXPENSE` | Sim | Webhook do Zap 1 |
+| `ZAPIER_WEBHOOK_SALARY` | Sim | Webhook do Zap 2 |
+| `GOOGLE_SHEET_ID` | Sim | ID da planilha |
+| `GOOGLE_CREDENTIALS_JSON` | Condicional | Credenciais Google em produção/cloud |
+| `GOOGLE_CREDENTIALS_PATH` | Condicional | Credenciais Google localmente |
+| `SHEET_NAME` | Não | Aba de transações; padrão `transactions` |
+| `USERS_SHEET_NAME` | Não | Aba de usuários; padrão `users` |
+
+Pelo menos uma forma de credencial Google deve existir: `GOOGLE_CREDENTIALS_JSON` ou `GOOGLE_CREDENTIALS_PATH`.
+
+---
+
+## 6. Categorização e Tipos
+
+A categorização local é feita por keyword matching no campo `description`.
+
+| Keywords | Categoria | Tipo |
 |---|---|---|
-| `TELEGRAM_BOT_TOKEN` | ✅ | Token do bot (obtido no @BotFather) |
-| `ZAPIER_WEBHOOK_EXPENSE` | ✅ | URL do webhook do Zap 1 |
-| `ZAPIER_WEBHOOK_SALARY` | ✅ | URL do webhook do Zap 2 |
-| `GOOGLE_SHEET_ID` | ✅ | ID da planilha (extraído da URL) |
-| `GOOGLE_CREDENTIALS_JSON` | ✅* | Conteúdo JSON das credenciais (Railway) |
-| `GOOGLE_CREDENTIALS_PATH` | ✅* | Caminho para o arquivo `.json` (local) |
-| `SHEET_NAME` | ❌ | Nome da aba de transações (padrão: `transactions`) |
-| `USERS_SHEET_NAME` | ❌ | Nome da aba de usuários (padrão: `users`) |
+| ifood, uber eats, rappi, pizza, restaurante, lanche, café | Alimentação | expense |
+| uber, 99, taxi, passagem, combustível, gasolina | Transporte | expense |
+| netflix, spotify, cinema, jogo | Entretenimento | expense |
+| farmácia, médico, dentista, vitamina | Saúde | expense |
+| curso, livro, escola | Educação | expense |
+| mercado, supermercado, roupa, eletrônico | Compras | expense |
+| salário, recebi, ganhei, bônus, freelance, venda, trabalho, renda | Trabalho | income |
+| nenhum match | Outros | expense |
 
-*Apenas uma das duas opções de credencial é necessária. `GOOGLE_CREDENTIALS_JSON` tem prioridade sobre `GOOGLE_CREDENTIALS_PATH`.
-
----
-
-## 6. Autenticação Google Sheets
-
-O `GoogleSheetsClient` suporta dois modos de autenticação, com prioridade definida:
-
-```
-1. GOOGLE_CREDENTIALS_JSON (string JSON)  ← usado no Railway
-       ↓ se não existir
-2. GOOGLE_CREDENTIALS_PATH (arquivo .json) ← usado localmente
-       ↓ se não existir
-3. ValueError — erro explícito na inicialização
-```
-
-O cliente é inicializado como singleton global na startup do bot. Se a conexão falhar, `gs_client = None` e as features que dependem do Sheets exibem uma mensagem de erro ao usuário sem crashar o bot.
+**Regra de ordem:** keywords compostas como `uber eats` devem aparecer antes de `uber` para evitar classificação errada.
 
 ---
 
-## 7. Categorização Automática
+## 7. Formato de Registro com `details`
 
-O bot detecta a categoria pelo campo `description` via keyword matching simples (sem IA). A IA do Zap 1 faz uma segunda passagem para refinar casos que o matching local não cobriu.
-
-**Mapeamento atual:**
-
-| Keywords | Categoria |
-|---|---|
-| ifood, uber eats, rappi, pizza, restaurante, lanche, café | Alimentação |
-| uber, 99, taxi, passagem, combustível, gasolina | Transporte |
-| netflix, spotify, cinema, jogo | Entretenimento |
-| farmácia, médico, dentista, vitamina | Saúde |
-| curso, livro, escola | Educação |
-| mercado, supermercado, roupa, eletrônico | Compras |
-| *(nenhum match)* | Outros |
-
-**Limitação conhecida:** o matching é feito por `keyword in text.lower()`, então "uber eats" pode conflitar com "uber" se a ordem dos itens no dict for alterada. Python 3.7+ garante ordem de inserção nos dicts, então "uber eats" deve aparecer **antes** de "uber" no `CATEGORY_MAP`.
-
-## 7.1 Formato rápido com details opcional
-
-O registro rápido continua compatível com o formato legado:
-
-```text
-/registro mercado 84
-```
-
-Agora também aceita observações após o separador opcional `|`:
+O registro rápido aceita observações opcionais usando `|`.
 
 ```text
 /registro mercado 84 | compra semanal com arroz e carne
 ```
 
-**Regras atuais:**
+**Regras:**
 
-- Apenas o trecho antes de `|` é usado para extrair `description` e `amount`
-- A inferência de `category` e `type` também usa apenas o trecho antes de `|`
-- O trecho após `|` é armazenado em `details`
-- Se `|` não existir, `details = ""`
-- Espaços extras nas duas partes são removidos
-
----
-
-## 8. Inconsistências Conhecidas
-
-### 8.1 `user_id` histórico inconsistente
-
-Transações antigas no Sheets foram inseridas com `user_id = "João"` ou `"webhook_user"` em vez do ID numérico do Telegram. O READ do bot filtra por ID numérico, então essas linhas não aparecem no histórico do usuário.
-
-**Solução recomendada:** normalizar manualmente as linhas antigas no Sheets para `user_id = "7500965215"`.
-
-### 8.2 Descriptions sujas
-
-Alguns registros têm o valor embutido na descrição (`"Restaurante 39 reais"`). Isso ocorre quando o usuário envia a descrição no formato errado antes da normalização da IA ser aplicada.
-
-### 8.3 Persistência de `details` depende do Zap/Sheets
-
-O bot agora envia `details` no payload de criação e consegue exibir o campo no preview e no histórico. Ainda assim, o histórico só mostrará a observação se o Zap 1 e a planilha também persistirem e devolverem essa coluna/campo na leitura.
-
-### 8.4 Sem ConversationHandler nativo
-
-O bot gerencia estados manualmente via `context.user_data['state']` em vez de usar o `ConversationHandler` do `python-telegram-bot`. Isso pode causar estados "travados" se o usuário abandonar um fluxo no meio sem completar ou cancelar.
-
-**Solução recomendada:** implementar um comando `/cancelar` que limpa `context.user_data` e retorna ao menu principal.
+- Antes do `|`: usado para extrair `description` e `amount`.
+- Depois do `|`: armazenado em `details`.
+- `details` é opcional.
+- `details` deve ser preservado sem reescrita agressiva.
+- O Zap 1 deve gravar `details` na coluna J da aba `transactions`.
 
 ---
 
-## 9. Dependências
+## 8. Cache e Latência
 
+O bot usa cache local por usuário com TTL curto para reduzir chamadas repetidas ao Google Sheets.
+
+**TTL atual:** 60 segundos.
+
+**Chaves principais:**
+
+- `transactions`
+- `salary_summary`
+
+**Invalidação:**
+
+- Após `CREATE`: invalidar `transactions` e `salary_summary`.
+- Após `DELETE`: invalidar `transactions` e `salary_summary`.
+- Após atualização de salário: invalidar `salary_summary`.
+
+---
+
+## 9. Inconsistências Conhecidas
+
+### 9.1 User ID histórico inconsistente
+
+Transações antigas podem ter sido gravadas com `user_id = "João"` ou `user_id = "webhook_user"` em vez do ID numérico do Telegram. Essas linhas não aparecem corretamente no histórico filtrado pelo bot.
+
+**Correção:** normalizar manualmente linhas antigas para o ID real do Telegram.
+
+### 9.2 Zap 2 não deve criar usuário novo via Lookup
+
+O Zap 2 deve atualizar salário de usuário existente. Se `Create if not found` estiver ativado, pode criar linhas desalinhadas ou duplicadas.
+
+**Correção:** manter `Create if not found` desativado no Lookup do Zap 2.
+
+### 9.3 Report ainda não é análise inteligente
+
+O path `REPORT` envia e-mail, mas ainda não entrega o objetivo final de análise comportamental com IA. Deve ser documentado como funcionalidade parcial.
+
+### 9.4 Webhook público
+
+Webhooks do Zapier são endpoints públicos. O sistema ainda deve evoluir para validação com token/API key ou outro mecanismo simples de proteção.
+
+### 9.5 Estado em memória
+
+Como o bot não usa persistência de estado, usuários podem ficar com fluxo interrompido após restart.
+
+**Correção recomendada:** implementar comando `/cancelar` para limpar estado e voltar ao menu.
+
+---
+
+## 10. Segurança e Boas Práticas
+
+- Nunca commitar `.env`, credenciais JSON ou URLs reais de webhook.
+- Não expor `TELEGRAM_BOT_TOKEN`.
+- Não expor `GOOGLE_CREDENTIALS_JSON`.
+- Não expor webhooks reais do Zapier no README público.
+- Evitar logs com payloads completos em produção quando contiverem e-mail, salário ou transações.
+- Considerar autenticação simples nos webhooks.
+- Tratar o Google Sheets como armazenamento provisório, não como banco definitivo para escala.
+
+---
+
+## 11. Dependências
+
+```text
+python-telegram-bot
+requests
+python-dotenv
+gspread
+google-auth
 ```
-python-telegram-bot==20.x
-gspread==6.x
-google-auth==2.x
-requests==2.x
-python-dotenv==1.x
-```
+
+A versão exata deve ser mantida no `requirements.txt`.
 
 ---
 
-## 10. Limitações e Considerações de Escala
+## 12. Escala e Evolução
 
-- **Google Sheets não é um banco de dados real.** Para mais de ~1.000 linhas na aba `transactions`, o `get_all_records()` começa a ficar lento. Para escala maior, considerar migração para Supabase ou Firebase.
-- **Sem autenticação multi-usuário real.** O sistema confia no `user_id` do Telegram como identificador único. Não há verificação adicional.
-- **Zapier gratuito tem limite de 100 tasks/mês.** Para uso intenso, considerar n8n self-hosted como alternativa.
-- **Estado de conversa não persiste entre reinicializações do bot.** Usuários em meio a um fluxo perdem o estado se o Railway reiniciar o serviço.
+### Limitações atuais
+
+- Google Sheets tende a ficar lento com crescimento da aba `transactions`.
+- Zapier pode ter custo por volume de tasks.
+- Webhooks públicos exigem proteção adicional antes de uso real amplo.
+- Relatório inteligente ainda depende de nova etapa de IA.
+
+### Evoluções prováveis
+
+| Evolução | Prioridade | Observação |
+|---|---:|---|
+| IA no REPORT | Alta | Principal melhoria de valor percebido |
+| Proteção de webhook | Alta | Necessária antes de uso público maior |
+| `/cancelar` | Média | Reduz estado travado |
+| Migração para banco real | Média/baixa | Supabase, Firebase ou PostgreSQL quando Sheets limitar |
+| Logs/auditoria | Média | Útil para debug e confiabilidade |
+| Categorias canônicas | Baixa/média | Melhora consistência de análise |
+
+---
+
+## 13. Papel dos Documentos no Repositório
+
+### `README.md`
+
+Documento de apresentação do projeto. Deve explicar rapidamente:
+
+- O que é o FinBot.
+- Como rodar.
+- Quais tecnologias usa.
+- Como a arquitetura geral funciona.
+- Estrutura resumida dos Zaps.
+
+### `telegram_bot_spec.md` ou `spec.md`
+
+Documento técnico de manutenção. Deve explicar em detalhe:
+
+- Fluxos internos.
+- Contratos de payload.
+- Estrutura das abas do Google Sheets.
+- Responsabilidades de cada Zap.
+- Limitações conhecidas.
+- Decisões arquiteturais.
+- Funcionalidades parciais e futuras.
+
+**Recomendação:** manter este arquivo no repositório, mas sem segredos. Ele é útil para você, para agentes de IA como Codex/Gemini/Copilot e para qualquer pessoa que vá manter o projeto.
+
+---
+
+## 14. Status Consolidado
+
+| Área | Status |
+|---|---|
+| Bot Telegram | Funcional |
+| Onboarding | Funcional |
+| Registro de transações | Funcional |
+| Details em transações | Funcional se Zap/Sheets estiverem mapeados corretamente |
+| Histórico | Funcional via leitura direta no Sheets |
+| Deleção | Funcional via Zap 1 |
+| Salário | Funcional via users + Zap 2 para update |
+| Relatório por e-mail | Parcial |
+| IA com insights financeiros | Não implementado |
+| Proteção robusta dos webhooks | Pendente |
+
