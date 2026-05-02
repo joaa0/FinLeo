@@ -53,6 +53,116 @@ graph TD
 | MistralAI | Geração da análise financeira textual |
 | Email by Zapier | Envio do relatório mensal |
 
+
+---
+
+## 🔁 Estrutura dos Zaps no Zapier
+
+O projeto usa **dois Zaps separados** para reduzir ambiguidade e evitar que salário, transações e relatórios sejam tratados pelo mesmo fluxo.
+
+### Zap 1 — Transações, Histórico, Delete e Report
+
+Este é o Zap principal. Ele recebe payloads do bot via webhook, normaliza os campos em Python e roteia a execução por `action`.
+
+```mermaid
+graph TD
+    A[1. Webhooks by Zapier\nCatch Hook] --> B[2. Code by Zapier\nNormalização Python]
+    B --> C[3. Paths\nSplit into paths]
+
+    C --> D[CREATE]
+    D --> D1[4. Path Conditions]
+    D1 --> D2[5. Code by Zapier\nEstrutura payload]
+    D2 --> D3[6. Code by Zapier\nFinaliza JSON]
+    D3 --> D4[7. Google Sheets\nCreate Spreadsheet Row]
+
+    C --> E[READ]
+    E --> E1[8. Path Conditions]
+    E1 --> E2[9. Google Sheets\nLookup/Search Rows]
+    E2 --> E3[10. Code by Zapier\nAgrega e formata]
+    E3 --> E4[11. Code by Zapier\nEscape/ajuste final]
+    E4 --> E5[12. Telegram\nSend Message]
+
+    C --> F[DELETE]
+    F --> F1[13. Path Conditions]
+    F1 --> F2[14. Google Sheets\nLookup Spreadsheet Row]
+    F2 --> F3[15. Google Sheets\nDelete Spreadsheet Row]
+
+    C --> G[REPORT]
+    G --> G1[16. Path Conditions]
+    G1 --> G2[17. Google Sheets\nLookup/Search Rows]
+    G2 --> G3[18. Code by Zapier\nResumo financeiro]
+    G3 --> G4[19. Google Sheets\nLookup user/email]
+    G4 --> G5[20. Email by Zapier\nSend Outbound Email]
+```
+
+#### Ações suportadas no Zap 1
+
+| Path | `action` | Responsabilidade | Saída esperada |
+|---|---|---|---|
+| 🟢 CREATE | `create` | Criar uma transação na aba `transactions` | Nova linha no Google Sheets |
+| 🔵 READ | `read` | Buscar transações do usuário | Mensagem no Telegram |
+| 🔴 DELETE | `delete` | Remover uma transação pelo `transaction_id` | Linha removida do Google Sheets |
+| 📊 REPORT | `report` | Gerar resumo financeiro por e-mail | E-mail enviado ao usuário |
+
+#### Status do Report
+
+O path **REPORT já envia e-mails**, mas atualmente funciona como um relatório financeiro básico: receitas, despesas, saldo, categorias e últimas transações.
+
+A evolução planejada é transformar esse fluxo em um **relatório analítico com IA**, onde o Zap deverá:
+
+- ler as transações do usuário;
+- ler salário e e-mail na aba `users`;
+- cruzar gastos, entradas, categorias e recorrência;
+- identificar padrões de comportamento;
+- apontar incoerências financeiras, como alto gasto em delivery apesar de mercado elevado;
+- sugerir cortes com justificativa contextual;
+- gerar um texto mais consultivo, não apenas um resumo numérico.
+
+Exemplo de insight desejado:
+
+> O usuário gastou R$ 1.000 em supermercado, mas também R$ 600 em delivery. Isso pode indicar compra doméstica mal planejada, desperdício ou uso de delivery por conveniência. O relatório deve sugerir reduzir delivery antes de cortar gastos essenciais.
+
+> **Status:** a parte de envio de e-mail existe; a análise comportamental com IA ainda não foi implementada.
+
+---
+
+### Zap 2 — Atualização de Salário
+
+O Zap 2 deve ser **linear e isolado**. Ele não deve ter múltiplos paths, não deve processar transações e não deve executar IA.
+
+```mermaid
+graph TD
+    A[1. Webhooks by Zapier\nCatch Hook] --> B[2. Code by Zapier\nNormaliza user_id e salary]
+    B --> C[3. Filter\nentity = user]
+    C --> D[4. Google Sheets\nLookup Spreadsheet Row em users]
+    D --> E[5. Google Sheets\nUpdate Spreadsheet Row]
+    E --> F[6. Webhook Response\nopcional]
+```
+
+#### Regra importante
+
+O **Path B antigo do Zap 2 não deve existir mais**. O Zap 2 deve atualizar apenas a aba `users`, usando:
+
+| Campo | Uso |
+|---|---|
+| `user_id` | chave de busca na aba `users` |
+| `salary` | valor atualizado na coluna de salário |
+| `updated_at` | data/hora da atualização |
+
+O Zap 2 **não deve mapear** campos de transação como `description`, `category`, `amount`, `type` ou `transaction_id`.
+
+---
+
+### Divisão de responsabilidades
+
+| Camada | Responsabilidade |
+|---|---|
+| Telegram Bot | Interface, menus, confirmação, leitura direta com `gspread` e envio para webhooks |
+| Zap 1 | CRUD de transações, delete, histórico via Telegram e report por e-mail |
+| Zap 2 | Atualização simples de salário na aba `users` |
+| Google Sheets | Persistência das abas `transactions` e `users` |
+| IA futura | Análise comportamental do report mensal |
+
 ---
 
 ## 📊 Estrutura do Google Sheets
