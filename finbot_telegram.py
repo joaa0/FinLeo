@@ -130,6 +130,10 @@ CATEGORY_MAP = {
     "passagem":      ("Transporte",     "expense"),
     "combustível":   ("Transporte",     "expense"),
     "gasolina":      ("Transporte",     "expense"),
+    "onibus":        ("Transporte",     "expense"),
+    "onibûs":        ("Transporte",     "expense"),
+
+
     # Entretenimento — expense
     "netflix":       ("Entretenimento", "expense"),
     "spotify":       ("Entretenimento", "expense"),
@@ -140,10 +144,14 @@ CATEGORY_MAP = {
     "médico":        ("Saúde",          "expense"),
     "dentista":      ("Saúde",          "expense"),
     "vitamina":      ("Saúde",          "expense"),
+    "remédio":       ("Saúde",          "expense"),
     # Educação — expense
     "curso":         ("Educação",       "expense"),
     "livro":         ("Educação",       "expense"),
     "escola":        ("Educação",       "expense"),
+    "apostila":      ("Educação",       "expense"),
+
+
     # Compras — expense
     "mercado":       ("Compras",        "expense"),
     "supermercado":  ("Compras",        "expense"),
@@ -1349,11 +1357,57 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
 
     elif query.data == "report":
-        keyboard = [[InlineKeyboardButton("⬅️ Voltar", callback_data="back_to_menu")]]
-        await query.edit_message_text(
-            "💰 *Relatório Mensal:*\n\nFuncionalidade em desenvolvimento...",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
+        user_id = str(update.effective_user.id)
+
+        if not ZAPIER_WEBHOOK_EXPENSE:
+            keyboard = [[InlineKeyboardButton("⬅️ Voltar", callback_data="back_to_menu")]]
+            await query.edit_message_text(
+                "❌ Relatório indisponível: webhook do Zap 1 não configurado.",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="Markdown"
+            )
+            return
+
+        payload = {
+            "action": "report",
+            "user_id": user_id,
+            "_source": "telegram_bot",
+            "_timestamp": datetime.now().isoformat()
+        }
+
+        try:
+            response = _post_zapier(ZAPIER_WEBHOOK_EXPENSE, payload)
+            keyboard = [[InlineKeyboardButton("⬅️ Voltar", callback_data="back_to_menu")]]
+
+            if 200 <= response.status_code < 300:
+                await query.edit_message_text(
+                    "📩 *Relatório solicitado!*\n\n"
+                    "Vou enviar sua análise financeira mensal para o e-mail cadastrado.",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode="Markdown"
+                )
+            else:
+                logger.error(f"Erro Zap 1 REPORT: {response.status_code} — {response.text}")
+                await query.edit_message_text(
+                    "❌ Não consegui solicitar o relatório agora. Tente novamente.",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode="Markdown"
+                )
+
+        except requests.exceptions.Timeout:
+            keyboard = [[InlineKeyboardButton("⬅️ Voltar", callback_data="back_to_menu")]]
+            await query.edit_message_text(
+                "⚠️ O pedido demorou demais. Tente novamente.",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            logger.error(f"Erro ao solicitar relatório: {str(e)}")
+            keyboard = [[InlineKeyboardButton("⬅️ Voltar", callback_data="back_to_menu")]]
+            await query.edit_message_text(
+                "❌ Erro ao solicitar relatório.",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="Markdown"
         )
 
     elif query.data == "salary_menu":
