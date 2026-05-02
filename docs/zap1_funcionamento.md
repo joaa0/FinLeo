@@ -2,7 +2,7 @@
 
 > Documento atualizado após implementação do **REPORT com IA via MistralAI**.
 >
-> O Zap 1 é o fluxo principal do FinBot para operações ligadas a transações financeiras, histórico, exclusão e relatório por e-mail.
+> O Zap 1 é o fluxo principal do ChamaLeon para operações ligadas a transações financeiras, histórico, exclusão e relatório por e-mail.
 
 ---
 
