@@ -1,6 +1,6 @@
-# 🤖 FinBot — Assistente Financeiro no Telegram
+# 🤖🦎 ChamaLeon — Assistente Financeiro no Telegram
 
-O **FinBot** é um bot de finanças pessoais via Telegram. Hoje ele permite fazer onboarding com e-mail e salário, registrar transações, consultar histórico, ver um resumo mensal e gerar um relatório personalizado por e-mail.
+O **ChamaLeon** é um bot de finanças pessoais via Telegram. Hoje ele permite fazer onboarding com e-mail e salário, registrar transações, consultar histórico, ver um resumo mensal e gerar um relatório personalizado por e-mail.
 
 O comportamento real do projeto hoje é:
 
@@ -285,7 +285,7 @@ gspread==5.12.0
 ## ▶️ Execução local
 
 ```bash
-python3 finbot_telegram.py
+python3 ChamaLeon_telegram.py
 ```
 
 O bot roda em polling.
@@ -295,7 +295,7 @@ O bot roda em polling.
 O `Procfile` atual usa:
 
 ```text
-worker: python finbot_telegram.py
+worker: python ChamaLeon_telegram.py
 ```
 
 Para subir em Railway, Render ou similar:
