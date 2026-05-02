@@ -1621,8 +1621,8 @@ def main():
     app.add_handler(CommandHandler("start",     start))
     app.add_handler(CommandHandler("registro",  quick_expense))
     app.add_handler(CommandHandler("historico", command_historico))
-    app.add_handler(CommandHandler("salario",   command_salario))
-    app.add_handler(CommandHandler("dinheiro",  command_dinheiro))
+    app.add_handler(CommandHandler("salario",   command_salario)) #alias legado
+    app.add_handler(CommandHandler("dinheiro",  command_salario))
     app.add_handler(CommandHandler("relatorio", command_relatorio))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
     app.add_handler(CallbackQueryHandler(button_handler))
