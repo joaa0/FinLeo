@@ -675,7 +675,7 @@ async def _show_main_menu(target, parse_mode="Markdown"):
         [InlineKeyboardButton("⚡ Novo Registro", callback_data="new_expense")],
         [InlineKeyboardButton("📊 Histórico",   callback_data="history")],
         [InlineKeyboardButton("💰 Relatório",   callback_data="report")],
-        [InlineKeyboardButton("💵 Meu Salário", callback_data="salary_menu")],
+        [InlineKeyboardButton("💵 Meu Dinheiro", callback_data="salary_menu")],
         [InlineKeyboardButton("🗑️ Deletar Transação", callback_data="menu_delete_transaction")],
     ]
     text = (
@@ -1120,7 +1120,7 @@ async def process_salary_input(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def command_salario(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Comando /salario — exibe resumo financeiro calculado em tempo real.
+    """Comando /salario ou /dinheiro — exibe resumo financeiro calculado em tempo real.
 
     saldo = salary + total_income - total_expense
     """
@@ -1166,6 +1166,52 @@ async def command_salario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         message, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
     )
+
+async def command_relatorio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Comando /relatorio — solicita relatório financeiro por e-mail."""
+    user_id = str(update.effective_user.id)
+
+    if not ZAPIER_WEBHOOK_EXPENSE:
+        await update.message.reply_text(
+            "❌ Relatório indisponível: webhook do Zap 1 não configurado.",
+            parse_mode="Markdown"
+        )
+        return
+
+    payload = {
+        "action": "report",
+        "user_id": user_id,
+        "_source": "telegram_bot",
+        "_timestamp": datetime.now().isoformat()
+    }
+
+    try:
+        response = _post_zapier(ZAPIER_WEBHOOK_EXPENSE, payload)
+
+        if 200 <= response.status_code < 300:
+            await update.message.reply_text(
+                "📩 *Relatório solicitado!*\n\n"
+                "Vou enviar sua análise financeira mensal para o e-mail cadastrado.",
+                parse_mode="Markdown"
+            )
+        else:
+            logger.error(f"Erro Zap 1 REPORT: {response.status_code} — {response.text}")
+            await update.message.reply_text(
+                "❌ Não consegui solicitar o relatório agora. Tente novamente.",
+                parse_mode="Markdown"
+            )
+
+    except requests.exceptions.Timeout:
+        await update.message.reply_text(
+            "⚠️ O pedido demorou demais. Tente novamente.",
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        logger.error(f"Erro ao solicitar relatório: {str(e)}")
+        await update.message.reply_text(
+            "❌ Erro ao solicitar relatório.",
+            parse_mode="Markdown"
+        )
 
 
 # ============================================================================
@@ -1576,6 +1622,8 @@ def main():
     app.add_handler(CommandHandler("registro",  quick_expense))
     app.add_handler(CommandHandler("historico", command_historico))
     app.add_handler(CommandHandler("salario",   command_salario))
+    app.add_handler(CommandHandler("dinheiro",  command_dinheiro))
+    app.add_handler(CommandHandler("relatorio", command_relatorio))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
     app.add_handler(CallbackQueryHandler(button_handler))
     
