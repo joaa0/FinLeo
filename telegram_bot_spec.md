@@ -1,10 +1,10 @@
-# FinBot — Especificação Técnica
+# ChamaLeon — Especificação Técnica
 
-Documento técnico alinhado ao comportamento real de `finbot_telegram.py`.
+Documento técnico alinhado ao comportamento real de `ChamaLeon_telegram.py`.
 
 ## 1. Visão geral
 
-FinBot é um assistente financeiro pessoal no Telegram com persistência em Google Sheets e automações no Zapier.
+ChamaLeon é um assistente financeiro pessoal no Telegram com persistência em Google Sheets e automações no Zapier.
 
 O fluxo atual está dividido assim:
 
@@ -15,7 +15,7 @@ O fluxo atual está dividido assim:
 
 ## 2. Fonte da verdade do runtime
 
-Hoje a fonte de verdade do comportamento implementado é o arquivo `finbot_telegram.py`.
+Hoje a fonte de verdade do comportamento implementado é o arquivo `ChamaLeon_telegram.py`.
 
 Os pontos centrais do runtime são:
 
