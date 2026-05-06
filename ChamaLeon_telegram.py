@@ -1,5 +1,5 @@
 """
-FinBot Telegram — Assistente Financeiro com IA
+ChamaLeon Telegram — Assistente Financeiro com IA
 Suporta: CREATE (novo gasto) + READ (histórico) + SALÁRIO (registrar/consultar)
 Google Sheets integrado para persistência de dados
 Zap 1: CRUD de transações | Zap 2: atualização de salário
@@ -679,7 +679,7 @@ async def _show_main_menu(target, parse_mode="Markdown"):
         [InlineKeyboardButton("🗑️ Deletar Transação", callback_data="menu_delete_transaction")],
     ]
     text = (
-        "🤖 *Bem-vindo ao FinBot!* 💰\n\n"
+        "🤖 *Bem-vindo ao ChamaLeon!* 💰\n\n"
         "Escolha uma opção ou digite rapidamente:\n"
         "`/registro ifood 39`\n\n"
         "_Registre seus gastos e veja seu histórico!_"
@@ -767,7 +767,7 @@ async def onboarding_process_salary(update: Update, context: ContextTypes.DEFAUL
     context.user_data.pop('onboarding_email', None)
 
     await update.message.reply_text(
-        "✅ *Cadastro concluído!* Bem-vindo ao FinBot 🎉",
+        "✅ *Cadastro concluído!* Bem-vindo ao ChamaLeon 🎉",
         parse_mode="Markdown"
     )
     await _show_main_menu(update.message)
@@ -1602,7 +1602,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 
 def main():
     """Inicializa e roda o bot"""
-    logger.info("🚀 Iniciando FinBot...")
+    logger.info("🚀 Iniciando ChamaLeon...")
     
     if not TELEGRAM_TOKEN:
         raise ValueError("TELEGRAM_BOT_TOKEN não configurado!")
