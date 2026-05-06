@@ -629,7 +629,7 @@ Envia relatório formatado para o email do usuário:
 ## 🎯 Conclusão
 
 Este Zap implementa um **sistema completo de gestão financeira pessoal** com:
-- ✅ CRUD (Create, Read, Update, Delete) de transações
+- ✅ CRUD (Create, Read, Delete) de transações
 - ✅ Análise automática via IA
 - ✅ Detecção de padrões comportamentais
 - ✅ Relatórios por email personalizados
