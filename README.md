@@ -269,8 +269,10 @@ GOOGLE_CREDENTIALS_JSON='{"type":"service_account",...}'
 - Conta de serviço do Google com acesso à planilha
 - 2 webhooks no Zapier
 
- -https://zapier.com/templates/details/zap-1-crud-principal-do-chamaleon-d65716?secret=MTp0ZW1wbGF0ZTpITGNCNFZiR0M5MmtCcDhLRUJXTW8zazViTHdOVXhfdVNzZFJabUV2ajFrOjF6MXdnNw (zap1 tempalte)
- -https://zapier.com/templates/details/zap-2-atualizao-ou-adio-de-salrio-edf22f?secret=MTp0ZW1wbGF0ZTpYd1JkVVBFOXkxeDJQT3ZjdEVieWYtZmJoUm5UTmdfdmRfNy1lUWNUNWNvOjU1OW83eg (zap2 template)
+ https://zapier.com/templates/details/zap-1-crud-principal-do-chamaleon-d65716?secret=MTp0ZW1wbGF0ZTpITGNCNFZiR0M5MmtCcDhLRUJXTW8zazViTHdOVXhfdVNzZFJabUV2ajFrOjF6MXdnNw (zap1 tempalte)
+ 
+ https://zapier.com/templates/details/zap-2-atualizao-ou-adio-de-salrio-edf22f?secret=MTp0ZW1wbGF0ZTpYd1JkVVBFOXkxeDJQT3ZjdEVieWYtZmJoUm5UTmdfdmRfNy1lUWNUNWNvOjU1OW83eg (zap2 template)
+
 ### Dependências
 
 ```bash
