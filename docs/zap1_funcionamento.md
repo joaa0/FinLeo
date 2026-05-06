@@ -1,756 +1,637 @@
-# Zap 1 — Funcionamento Atualizado
+# 📋 Documentação Completa: ZAP 1 - CRUD Principal do ChamaLeon
 
-> Documento atualizado após implementação do **REPORT com IA via MistralAI**.
->
-> O Zap 1 é o fluxo principal do FinBot para operações ligadas a transações financeiras, histórico, exclusão e relatório por e-mail.
+## Visão Geral
 
----
-
-## 1. Objetivo do Zap 1
-
-O **Zap 1** recebe payloads enviados pelo Bot Telegram e executa ações relacionadas à aba `transactions` do Google Sheets.
-
-Ele é responsável por:
-
-- criar transações;
-- consultar histórico via fluxo legado/complementar;
-- deletar transações;
-- gerar relatório financeiro por e-mail;
-- executar a análise comportamental por IA no branch `REPORT`.
-
-O Zap 1 **não** deve atualizar salário. Atualização de salário pertence exclusivamente ao **Zap 2**.
+Este é um sistema de automação financeira completo que funciona como um **gerenciador de transações com análise de IA**. Ele recebe dados via webhook, processa, normaliza e distribui em 4 fluxos distintos (CREATE, READ, DELETE, REPORT) com base no tipo de ação solicitada.
 
 ---
 
-## 2. Estrutura geral
+## 🏗️ Arquitetura Geral
 
-```text
-1. Webhooks by Zapier — Catch Hook
-2. Code by Zapier — Normalização inicial
-3. Paths by Zapier — Roteamento por action
-   ├── CREATE
-   ├── READ
-   ├── DELETE
-   └── REPORT
+```
+Webhook → Normalização Python → Paths (4 Branches) → Ações específicas
 ```
 
+| Componente | Função |
+|-----------|--------|
+| **Webhook** | Entrada de dados (trigger) |
+| **Normalização** | Processa e estrutura dados |
+| **Paths** | Distribui para 4 fluxos diferentes |
+| **Branches** | CREATE, READ, DELETE, REPORT |
+
 ---
 
-## 3. Payload esperado do Bot Telegram
+## 📥 Step 1: Webhook (Hook v2)
 
-### 3.1 CREATE
+**ID:** `362293100`
+**App:** WebHookCLIAPI
+**Tipo:** Trigger (read)
+
+### Função
+Aguarda requisições HTTP POST e captura os dados enviados.
+
+### Dados Esperados
 
 ```json
 {
-  "action": "create",
-  "user_id": "7500965215",
-  "description": "mercado",
-  "details": "compra do mês com arroz e carne",
-  "amount": 84.0,
-  "category": "Compras",
+  "date": "2025-01-15",
+  "text": "Descrição da transação",
   "type": "expense",
-  "date": "2026-05-02",
+  "action": "create|read|delete|report",
+  "amount": 150.50,
+  "details": "Informações adicionais",
+  "user_id": "7500965215",
+  "category": "Alimentacao",
+  "from__id": "xyz",
+  "description": "Almoço",
+  "transaction_id": "tx_12345",
+  "from__first_name": "João",
   "_source": "telegram_bot",
-  "_timestamp": "2026-05-02T12:00:00",
-  "_normalized": true
+  "_normalized": "true",
+  "salary": 3500
 }
 ```
 
-### 3.2 READ
+### Campos Chave
+- **action**: Determina qual branch executará (create/read/delete/report)
+- **user_id**: Identificador do usuário (geralmente ID do Telegram)
+- **amount**: Valor da transação
+- **category**: Categoria financeira
 
-```json
-{
-  "action": "read",
-  "user_id": "7500965215",
-  "_source": "telegram_bot",
-  "_timestamp": "2026-05-02T12:00:00"
-}
+---
+
+## ⚙️ Step 2: Normalização em Python (Code Step)
+
+**ID:** `362293101`
+**App:** CodeCLIAPI
+**Tipo:** Write (action)
+
+### Função
+**Processa, valida e normaliza os dados recebidos do webhook antes do roteamento.**
+
+### Fluxo Lógico
+
+#### 1️⃣ Bypass para Telegram Bot Normalizado
+Se os dados chegam do Telegram Bot já normalizados (`_source === 'telegram_bot'` e `_normalized === 'true'`), **pula todo o processamento** e retorna direto:
+
+```python
+if (_source == 'telegram_bot' and _normalized == 'true' and
+    amount_val > 0 and input_data.get('description') and
+    input_data.get('category')):
+    # Retorna direto, sem processamento
+    return { estrutura_normalizada }
 ```
 
-### 3.3 DELETE
+**Benefício:** Evita re-processamento de dados já validados, economizando tempo.
 
-```json
-{
-  "action": "delete",
-  "user_id": "7500965215",
-  "transaction_id": "7500965215_20260502120000",
-  "_source": "telegram_bot",
-  "_timestamp": "2026-05-02T12:00:00"
-}
+#### 2️⃣ Processamento Normal
+Se não vem do Telegram normalizado, executa o pipeline completo:
+
+**a) Extrai campos básicos:**
+```python
+action = input_data.get('action', 'create')
+user_id = input_data.get('user_id', '')
+amount = float(input_data.get('amount', 0))
 ```
 
-### 3.4 REPORT
+**b) Gera ID único:**
+- Se `transaction_id` foi fornecido, usa-o
+- Senão, cria: `user_id + '_' + timestamp`
 
-```json
+**c) Normaliza ação baseado em palavras-chave:**
+```
+"deletar", "apagar" → action = "delete"
+"corrigir", "atualizar" → action = "update"
+"relat", "extrato" → action = "report"
+"ver", "minhas transações" → action = "read"
+```
+
+**d) Normaliza categoria:**
+- Se categoria for "Outro", tenta identificar pela descrição:
+  - **Alimentação**: "ifood", "uber eats", "pizza", "restaurante"
+  - **Transporte**: "uber", "taxi", "gasolina", "metro"
+  - **Saúde**: "farmacia", "consulta", "medicamento"
+  - **Lazer**: "cinema", "show", "ingresso"
+  - **Educação**: "curso", "livro", "faculdade"
+  - **Trabalho/Renda**: "salario", "freelance", "venda"
+
+### Output da Normalização
+
+```python
 {
-  "action": "report",
-  "user_id": "7500965215",
-  "_source": "telegram_bot",
-  "_timestamp": "2026-05-02T12:00:00"
+  'id': 'tx_único_gerado',
+  'action': 'create|read|delete|update|report',
+  'user_id': '7500965215',
+  'description': 'Texto normalizado',
+  'amount': 150.50,
+  'category': 'Alimentacao',
+  'type': 'expense|income',
+  'date': '2025-01-15',
+  'details': 'Info adicional'
 }
 ```
 
 ---
 
-## 4. Estrutura das abas do Google Sheets
+## 🛣️ Step 3: Paths (Roteamento Condicional)
 
-### 4.1 Aba `transactions`
+**ID:** `362293102`
+**App:** EngineAPI
+**Tipo:** Parallel Paths
 
-| Coluna | Campo | Uso |
-|---|---|---|
-| A | `id` | ID único da transação |
-| B | `user_id` | ID do usuário do Telegram |
-| C | `date` | Data da transação |
-| D | `description` | Descrição curta |
-| E | `category` | Categoria |
-| F | `amount` | Valor |
-| G | `type` | `expense` ou `income` |
-| H | `created_at` | Data de criação |
-| I | `updated_at` | Data de atualização |
-| J | `details` | Observações adicionais |
+### Função
+**Avalia 4 condições diferentes (uma por branch) e executa apenas a branch correspondente.**
 
-### 4.2 Aba `users`
+Cada branch começa com um **Filter (BranchingAPI)** que verifica condições:
 
-| Coluna | Campo | Uso |
-|---|---|---|
-| A | `user_id` | ID do usuário do Telegram |
-| B | `email` | E-mail para envio de relatório |
-| C | `registered_date` | Data de cadastro |
-| D | `salary` | Salário base |
-| E | `updated_at` | Última atualização |
+| Branch | ID | Condição | Cor | Ação |
+|--------|----|-----------|----|------|
+| CREATE | 362293103 | action == "create" | 🔵 Azul | Insere transação no Sheets |
+| READ | 362293107 | action == "read" | 🔵 Azul | Busca transações do usuário |
+| DELETE | 362293112 | action == "delete" | 🔴 Vermelho | Deleta transação do Sheets |
+| REPORT | 362293115 | action == "report" | 📊 Verde | Gera relatório com IA |
 
 ---
 
-## 5. Step 2 — Normalização inicial
+## 🟢 Branch 1: CREATE (Criar Transação)
 
-O Step 2 recebe os dados crus do Webhook e padroniza os campos principais.
+**IDs:** 362293103 → 362293104 → 362293105 → 362293106
 
-### Responsabilidades
+### Filtro (362293103)
+```
+Condição 1: action == "create" (continue)
+Condição 2: salary existe (stop se não existir)
+Condição 3: amount > 0 (continue)
+Condição 4: description existe (continue)
+```
 
-- detectar `action`;
-- normalizar `user_id`;
-- normalizar `amount`;
-- preservar `details`;
-- gerar `id` quando necessário;
-- preparar dados para os Paths.
+### Fluxo
+1. **Filter**: Valida se é um CREATE com dados válidos
+2. **Code Step 362293104**: Estrutura dados para Google Sheets
+   ```python
+   return {
+       'id': transaction_id,
+       'user_id': user_id,
+       'date': date,
+       'description': description,
+       'category': category,
+       'amount': amount,
+       'type': type,
+       'created_at': date,
+       'updated_at': date,
+       'details': details
+   }
+   ```
 
-### Actions suportadas
+3. **Code Step 362293105**: Retorna status de sucesso
+   ```python
+   return {
+       'status': 'success',
+       'message': 'Transacao inserida',
+       'id': id,
+       ... (todos os campos)
+   }
+   ```
 
-| Action | Responsabilidade |
-|---|---|
-| `create` | Criar uma transação |
-| `read` | Consultar histórico |
-| `delete` | Deletar transação |
-| `report` | Gerar relatório financeiro por IA |
+4. **Google Sheets**: Insere como nova linha na aba "transactions"
+   ```
+   COL$A: id
+   COL$B: user_id
+   COL$C: date
+   COL$D: description
+   COL$E: category
+   COL$F: amount
+   COL$G: type
+   COL$H: created_at
+   COL$I: updated_at
+   COL$J: details
+   ```
 
-### Observação
-
-O action `update` não deve ser tratado como path ativo no Zap 1 neste estágio.
+**Resultado:** ✅ Transação registrada em Google Sheets
 
 ---
 
-## 6. Path CREATE
+## 🔵 Branch 2: READ (Buscar Transações)
 
-### Objetivo
+**IDs:** 362293107 → 362293108 → 362293109 → 362293110 → 362293111
 
-Inserir uma nova linha na aba `transactions`.
+### Filtro (362293107)
+```
+Condição: action == "read"
+```
 
 ### Fluxo
 
-```text
-CREATE
-1. Filter: action == create
-2. Code by Zapier: estrutura dados para Sheets
-3. Code by Zapier: finaliza JSON/status
-4. Google Sheets: Create Spreadsheet Row
+**1. Filter (362293107):** Valida se é READ
+
+**2. Google Sheets - Find Many Rows (362293108)**
+- Busca todas as transações do `user_id`
+- Lookup: `COL$B (user_id) == {{362293101__user_id}}`
+- Retorna até 500 linhas (resultados agrupados)
+
+**3. Code Step 362293109 - Processamento de Resultados**
+```python
+# Pega os dados do lookup
+results = input_data.get('results', [])
+rows = results[0]['rows'] if results else []
+
+# Calcula totais
+total_count = len(rows)
+total_amount = sum(float(row['COL$F']) for row in rows)
+
+# Formata últimas 5 transações
+transactions = [
+    {
+        'date': row['COL$C'],
+        'description': row['COL$D'],
+        'amount': float(row['COL$F']),
+        'category': row['COL$E']
+    }
+    for row in rows[-5:]
+]
+
+return {
+    'total_count': total_count,
+    'total_amount': total_amount,
+    'message': f'Encontrei {total_count} transacoes totalizando R$ {total_amount}...',
+    'transactions': transactions
+}
 ```
 
-### Mapeamento no Google Sheets
-
-| Campo | Coluna |
-|---|---|
-| `id` | A |
-| `user_id` | B |
-| `date` | C |
-| `description` | D |
-| `category` | E |
-| `amount` | F |
-| `type` | G |
-| `created_at` | H |
-| `updated_at` | I |
-| `details` | J |
-
-### Regra do campo `details`
-
-O campo `details` deve ser preservado como veio do bot, apenas com limpeza simples de espaços.
-
-Exemplo:
-
-```text
-/registro mercado 84 | compra semanal com arroz e carne
+**4. Code Step 362293110 - Escape Markdown**
+```python
+# Escapa caracteres especiais para Telegram markdown
+escaped_message = message.replace('.', '\\.')
+return {'escaped_message': escaped_message}
 ```
 
-Resultado:
+**5. Telegram - Send Message (362293111)**
+```markdown
+📊 **SUAS TRANSAÇÕES**
 
-```text
-description = mercado
-amount = 84
-details = compra semanal com arroz e carne
+Encontrei {total_count} transacoes totalizando R$ {total_amount}
+
+Ultimas transacoes:
+  • {date} - {description}: R$ {amount} ({category})
+  ...
 ```
+
+**Resultado:** 📱 Mensagem enviada no Telegram com resumo das transações
 
 ---
 
-## 7. Path READ
+## 🔴 Branch 3: DELETE (Deletar Transação)
 
-### Objetivo
+**IDs:** 362293112 → 362293113 → 362293114
 
-Buscar transações do usuário e retornar histórico formatado.
+### Filtro (362293112)
+```
+Condição: action == "delete"
+```
 
 ### Fluxo
 
-```text
-READ
-1. Filter: action == read
-2. Google Sheets: Lookup/Search Rows em transactions
-3. Code by Zapier: agrega e formata
-4. Code by Zapier: escapa/ajusta para Telegram
-5. Telegram: Send Message
-```
+**1. Filter (362293112):** Valida se é DELETE
 
-### Observação
+**2. Google Sheets - Lookup Row (362293113)**
+- Busca a transação específica
+- Lookup: `COL$A (id) == {{362293101__id}}`
+- Retorna a primeira linha encontrada
 
-Atualmente o Bot Telegram também faz leitura direta via `gspread` para histórico e salário. Portanto, o Path READ pode permanecer como fluxo legado ou complementar.
+**3. Google Sheets - Delete Row (362293114)**
+- Deleta a linha encontrada no step anterior
+- Remove permanentemente do Sheets
 
----
-
-## 8. Path DELETE
-
-### Objetivo
-
-Remover uma transação específica da aba `transactions`.
-
-### Fluxo
-
-```text
-DELETE
-1. Filter: action == delete
-2. Google Sheets: Lookup Spreadsheet Row
-3. Google Sheets: Delete Spreadsheet Row
-```
-
-### Configuração do Lookup
-
-```text
-Worksheet: transactions
-Lookup Column: id ou COL$A
-Lookup Value: transaction_id recebido do bot
-```
-
-### Regra de segurança lógica
-
-O bot só envia `transaction_id` de transações previamente carregadas para o próprio `user_id`. Ainda assim, o ideal futuro é o Zap validar também `user_id` antes de deletar.
+**Resultado:** 🗑️ Transação deletada do Sheets
 
 ---
 
-# 9. Path REPORT — Relatório financeiro com IA
+## 📊 Branch 4: REPORT (Gerar Relatório com IA)
 
-## 9.1 Objetivo
+**IDs:** 362293115 → 362294316 → 362294317 → 362294318 → 362294319 → 362294320 → 362294321
 
-Gerar um relatório financeiro mensal com análise comportamental usando MistralAI.
-
-O relatório deixou de ser apenas um resumo numérico e passou a gerar:
-
-- diagnóstico financeiro do mês;
-- análise de padrões de gasto;
-- sinais comportamentais;
-- tabela de ajuste sugerida;
-- plano de ação;
-- recomendações práticas;
-- avisos sobre limitações dos dados.
-
----
-
-## 9.2 Fluxo atual do REPORT
-
-```text
-REPORT
-1. Filter: action == report
-2. Google Sheets: Lookup Spreadsheet Row em users
-3. Google Sheets: Lookup/Search Rows em transactions
-4. Code by Zapier — REPORT_ANALYSIS_PREP
-5. Webhooks by Zapier — Custom Request para MistralAI
-6. Code by Zapier — FORMAT_EMAIL
-7. Email by Zapier — Send Outbound Email
+### Filtro (362293115)
+```
+Condição: action == "report"
 ```
 
----
+### Fluxo (Complexo - ⚠️ Mais detalhado)
 
-## 9.3 Step 17 — Buscar usuário
+**1. Filter (362293115):** Valida se é REPORT
 
-### Função
+**2. Google Sheets - Lookup User (362294316)**
+- Busca dados do usuário na aba "users"
+- Lookup: `COL$A (user_id) == {{362293101__user_id}}`
+- Retorna: email, salary, etc.
 
-Buscar e-mail e salário do usuário na aba `users`.
+**3. Google Sheets - Find All Transactions (362294317)**
+- Busca todas as transações do mês do usuário
+- Lookup: `COL$B (user_id) == {{362293101__user_id}}`
+- Retorna até 500 transações com seus dados completos
 
-### Configuração
+**4. Code Step 362294318 - Análise Financeira Completa** ⭐ **[MAIS IMPORTANTE]**
 
-```text
-App: Google Sheets
-Action: Lookup Spreadsheet Row
-Worksheet: users
-Lookup Column: user_id ou COL$A
-Lookup Value: user_id recebido do webhook/Step 2
-Create if not found: desativado
+Este é o coração do relatório. Processa:
+
+#### a) Normalização de Dados
+```python
+# Parse de amounts, datas, categorias, tipos
+normalize_amount("R$ 150,50") → 150.50
+normalize_category("", "ifood", "") → "Alimentação"
+parse_date_to_ymd("2025-01-15") → date(2025, 1, 15)
 ```
 
-### Saídas usadas
+#### b) Filtro Temporal
+- Filtra apenas transações do mês atual
+- Descarta transações de outros meses
 
-```text
-email
-salary
-user_id
+#### c) Cálculo de Totais por Categoria
+```python
+category_totals = {
+    'Alimentação': 450.75,
+    'Transporte': 280.30,
+    'Compras': 150.00,
+    ...
+}
 ```
 
----
+#### d) Detecção de Sinais (Flags Financeiras)
+```python
+# Sinal 1: Alimentação alta?
+if alimentacao / salary >= 0.20:
+    signals.append('Alimentação está pesada')
 
-## 9.4 Step 18 — Buscar transações
+# Sinal 2: Compras altas?
+if compras / salary >= 0.15:
+    signals.append('Compras representam percentual relevante')
 
-### Função
+# Sinal 3: Transporte alto?
+if transporte / salary >= 0.12:
+    signals.append('Transporte representa percentual relevante')
 
-Buscar todas as transações do usuário na aba `transactions`.
-
-### Configuração
-
-```text
-App: Google Sheets
-Action: Lookup Spreadsheet Rows / Find Many Spreadsheet Rows
-Worksheet: transactions
-Lookup Column: user_id ou COL$B
-Lookup Value: user_id recebido do webhook/Step 2
-Row Count: 500 ou 1000
+# Sinal 4: Categorias desconhecidas?
+if unknown_categories > 0:
+    signals.append('Existem transações em Outros')
 ```
 
-### Importante
+#### e) Análise Comportamental Avançada
+```python
+# Padrão 1: Mercado + Delivery simultâneo?
+if market_total > 0 and delivery_total > 0:
+    behavioral_signals.append({
+        'type': 'mercado_e_delivery',
+        'interpretation': 'Pode indicar baixa utilização dos alimentos comprados'
+    })
 
-O Step 18 precisa retornar line-items das colunas da aba `transactions`.
+# Padrão 2: Transporte privado alto?
+if private_transport / salary >= 0.10:
+    behavioral_signals.append({
+        'type': 'transporte_privado_alto',
+        'interpretation': 'Avaliar alternativas (público, caronas, rotas)'
+    })
 
-No Step 19, não usar `18. Results` como objeto genérico se ele não for reconhecido corretamente pelo Code Step.
+# Padrão 3: Compras frequentes?
+if shopping_total / salary >= 0.12:
+    behavioral_signals.append({
+        'type': 'compras_relevantes',
+        'interpretation': 'Pode indicar consumo impulsivo'
+    })
 
-O mapeamento mais estável é por colunas separadas:
+# Padrão 4: Renda muito comprometida?
+if expense_rate >= 85:
+    behavioral_signals.append({
+        'type': 'renda_muito_comprometida',
+        'message': 'Foco em reduzir gastos variáveis'
+    })
 
-| Input do Step 19 | Campo do Step 18 |
-|---|---|
-| `tx_ids` | `COL$A` |
-| `tx_user_ids` | `COL$B` |
-| `tx_dates` | `COL$C` |
-| `tx_descriptions` | `COL$D` |
-| `tx_categories` | `COL$E` |
-| `tx_amounts` | `COL$F` |
-| `tx_types` | `COL$G` |
-| `tx_details` | `COL$J` |
-
----
-
-## 9.5 Step 19 — `REPORT_ANALYSIS_PREP`
-
-### Função
-
-Preparar os dados financeiros para a IA.
-
-### Inputs esperados
-
-```text
-user_id
-email
-salary
-tx_ids
-tx_user_ids
-tx_dates
-tx_descriptions
-tx_categories
-tx_amounts
-tx_types
-tx_details
+# Padrão 5: Sobra positiva?
+if balance > 0:
+    behavioral_signals.append({
+        'type': 'sobra_positiva',
+        'suggested_reserve': salary * 0.10 a 0.30
+    })
 ```
 
-### Responsabilidades
+#### f) Classificação de Perfil Financeiro
+```python
+# Classifica renda
+if salary <= 3300:
+    income_segment = 'abaixo_media'
+elif salary <= 4818:
+    income_segment = 'dentro_media'
+elif salary <= 15000:
+    income_segment = 'acima_media'
+else:
+    income_segment = 'renda_muito_alta'
 
-- normalizar salário;
-- filtrar transações do mês atual;
-- separar `income` e `expense`;
-- normalizar valores em formato brasileiro;
-- normalizar categorias;
-- usar `details` para enriquecer a análise;
-- calcular totais por categoria;
-- calcular saldo estimado;
-- identificar top transações;
-- criar sinais comportamentais;
-- montar `mistral_body_json`.
+# Classifica nível de despesas
+expense_rate = (despesas / salary) * 100
 
-### Categorias permitidas para análise
-
-```text
-Alimentação
-Transporte
-Entretenimento
-Saúde
-Educação
-Moradia
-Compras
-Gastos de Urgências
-Outros
+if expense_rate <= 50:
+    expense_level = 'poucas_despesas'
+elif expense_rate <= 70:
+    expense_level = 'despesas_moderadas'
+elif expense_rate <= 90:
+    expense_level = 'muitas_despesas'
+else:
+    expense_level = 'risco_alto'
 ```
 
-### Saídas principais
-
-```text
-user_id
-email
-salary
-month
-expense_total
-income_total
-balance
-mistral_body_json
-fallback_email_body
+#### g) Construção do Payload para IA
+```python
+ai_payload = {
+    'user_id': user_id,
+    'month': '2025-01',
+    'salary': 3500.00,
+    'income_total': 200.00,
+    'expense_total': 1850.50,
+    'balance': 1849.50,
+    'expense_rate': 52.9,
+    'profile_classification': {
+        'income_segment': 'dentro_media',
+        'expense_level': 'despesas_moderadas'
+    },
+    'category_totals': [...],
+    'top_transactions': [...],
+    'signals': [...],
+    'behavioral_signals': [...]
+}
 ```
 
-### Observação sobre debug
+**5. Webhook para Mistral API (362294319)**
 
-Durante diagnóstico, podem existir campos como:
-
-```text
-debug_tx_dates_count
-debug_tx_amounts_count
-debug_processed_transactions
-```
-
-Após validação em produção controlada, esses campos devem ser removidos para reduzir exposição desnecessária de dados.
-
----
-
-## 9.6 Step 20 — MistralAI
-
-### Função
-
-Enviar o payload financeiro para o modelo da Mistral e receber a análise.
-
-### Configuração
-
-```text
-App: Webhooks by Zapier
-Action: Custom Request
-Method: POST
-URL: https://api.mistral.ai/v1/chat/completions
-```
-
-### Headers
-
-```text
-Authorization: Bearer SUA_MISTRAL_API_KEY
-Content-Type: application/json
-```
-
-### Body/Data
-
-```text
-{{19. mistral_body_json}}
-```
-
-### Modelo recomendado
+Envia os dados para a IA Mistral com:
+- **System Prompt**: 2400+ caracteres com regras de análise financeira
+- **User Prompt**: Dados do usuario em JSON
 
 ```json
 {
   "model": "mistral-small-latest",
   "temperature": 0.3,
-  "max_tokens": 1800
+  "max_tokens": 2400,
+  "messages": [
+    {
+      "role": "system",
+      "content": "[REGRAS COMPLETAS DE ANÁLISE FINANCEIRA...]"
+    },
+    {
+      "role": "user",
+      "content": "[PAYLOAD COM DADOS DO USUÁRIO...]"
+    }
+  ]
 }
 ```
 
-### Saída importante
-
-O campo usado no Step 21 deve ser:
-
-```text
-20. Choices Message Content
-```
-
-ou, dependendo da interface do Zapier:
-
-```text
-20. Choices Messages Content
-```
-
-Esse campo contém diretamente o texto gerado pela IA.
-
----
-
-## 9.7 Step 21 — `FORMAT_EMAIL`
-
-### Função
-
-Transformar o conteúdo da IA em e-mail.
-
-### Inputs esperados
-
-```text
-ai_content = 20. Choices Message Content
-user_id = 19. user_id
-email = 19. email
-fallback_email_body = 19. fallback_email_body
-```
-
-### Regra crítica
-
-O input do Step 21 **não** deve apontar para status code, headers, request body ou campo genérico vazio.
-
-O mapeamento correto é:
-
-```text
-ai_content ou response = 20. Choices Message Content
-```
-
-### Responsabilidades
-
-- receber texto final da Mistral;
-- aplicar fallback se a IA falhar;
-- converter Markdown básico em HTML;
-- montar `email_subject`;
-- montar `email_text`;
-- montar `email_html`.
-
-### Saídas principais
-
-```text
-email_subject
-email_text
-email_html
-user_id
-email
-```
-
----
-
-## 9.8 Step 22 — Envio de e-mail
-
-### Função
-
-Enviar o relatório ao usuário.
-
-### Configuração
-
-```text
-App: Email by Zapier
-Action: Send Outbound Email
-```
-
-### Mapeamento
-
-```text
-To: 21. email ou 19. email
-Subject: 21. email_subject
-Body: 21. email_html
-```
-
-Se o HTML não renderizar corretamente, usar:
-
-```text
-Body: 21. email_text
-```
-
----
-
-# 10. Comportamento esperado do relatório com IA
-
-## Exemplo de cenário
-
-Transações do mês:
-
-```text
-mercado 300 | compra do mês
-ifood 80 | jantar por preguiça
-uber 45 | faculdade
-academia 120 | mensalidade
-```
-
-Saída esperada no relatório:
-
-- despesas maiores que zero;
-- categorias preenchidas;
-- análise proporcional ao salário;
-- destaque para mercado + delivery, se existir;
-- recomendação prática de corte;
-- plano de ação para o próximo mês;
-- aviso caso existam muitas transações em `Outros`.
-
----
-
-# 11. Regras da IA no REPORT
-
-A IA deve seguir estas regras:
-
-- não inventar dados;
-- não prometer resultados;
-- não recomendar bancos, crédito, investimentos específicos ou produtos financeiros;
-- não culpar o usuário;
-- tratar inferências como hipóteses;
-- priorizar categorias variáveis antes de despesas fixas;
-- analisar primeiro `Compras`, `Alimentação`, `Entretenimento` e `Transporte`;
-- não sugerir corte em `Moradia` antes de avaliar desperdícios claros;
-- usar `details` quando disponível;
-- sinalizar baixa confiabilidade se houver muitas transações em `Outros`.
-
----
-
-# 12. Erros comuns e correções
-
-## 12.1 Step 19 retorna despesas zeradas
-
-### Sintoma
-
-```text
-expense_total = 0
-income_total = 0
-balance = salary
-```
-
-### Causas prováveis
-
-- Step 18 não encontrou transações;
-- Step 18 buscou pela coluna errada;
-- Step 19 recebeu `18. Results` em formato incompatível;
-- transações antigas têm `user_id` inconsistente;
-- datas estão fora do mês atual;
-- tipos estão em formato não reconhecido.
-
-### Correção
-
-Usar line-items separados no Step 19:
-
-```text
-tx_ids           → 18. COL$A
-tx_user_ids      → 18. COL$B
-tx_dates         → 18. COL$C
-tx_descriptions  → 18. COL$D
-tx_categories    → 18. COL$E
-tx_amounts       → 18. COL$F
-tx_types         → 18. COL$G
-tx_details       → 18. COL$J
-```
-
----
-
-## 12.2 Step 21 cai no fallback apesar do Step 20 ter resposta
-
-### Sintoma
-
-```text
-Email Subject: Relatório Financeiro - Indisponível
-Email Text: Relatório de YYYY-MM: Despesas R$ X, Saldo R$ Y
-```
-
-### Causa provável
-
-O input `response` do Step 21 foi mapeado para o campo errado.
-
-### Correção
-
-Mapear:
-
-```text
-response ou ai_content = 20. Choices Message Content
-```
-
-Não mapear:
-
-```text
-20. Status Code
-20. Headers
-20. Request Body
-20. Raw vazio
-```
-
----
-
-## 12.3 SyntaxError com `18. COL$A`
-
-### Sintoma
-
-```text
-SyntaxError: invalid syntax
-```
-
-### Causa
-
-O mapeamento visual do Zapier foi colado dentro do código Python.
-
-### Correção
-
-No código Python, usar:
+**Resposta da IA:** Relatório estruturado em 5 seções Markdown:
+1. 📊 Planilha resumida de gastos
+2. 📉 Diagnóstico financeiro
+3. 🎯 Ajuste principal
+4. 📈 Novo cenário após ajuste
+5. 💰 Uso da sobra
+
+**6. Code Step 362294320 - Formatação de Email**
+
+Converte resposta da IA para HTML:
 
 ```python
-tx_ids = split_line_items(input_data.get("tx_ids"))
+# Converte Markdown para HTML
+# Títulos: # → <h2>
+# Negrito: ** → <strong>
+# Tabelas: | → <table>
+# Bullet points: - → <p class='bullet'>
+
+email_html = f"""
+<div style="...">
+  <div style="background:#111827;...">
+    <h1>📊 Relatório Financeiro Mensal</h1>
+  </div>
+  <div style="background:#ffffff;...">
+    {html_content_convertido}
+  </div>
+</div>
+"""
 ```
 
-Na tela de Input Data do Zapier, mapear visualmente:
+**7. Email by Zapier (362294321)**
 
-```text
-tx_ids → 18. COL$A
+Envia relatório formatado para o email do usuário:
+- **To**: `{{362294318__email}}`
+- **Subject**: `📊 Seu relatório financeiro mensal — 01/2025`
+- **Body**: HTML formatado com tabelas, cores, tipografia profissional
+
+**Resultado:** 📧 Relatório enviado por email com análise completa
+
+---
+
+## 🔄 Fluxo Completo Resumido
+
+```
+1. Webhook recebe JSON
+   ↓
+2. Code normaliza dados
+   ↓
+3. Paths avalia ação (action field)
+   ├─ CREATE → Insere em Sheets
+   ├─ READ → Busca e envia Telegram
+   ├─ DELETE → Remove de Sheets
+   └─ REPORT → Análise IA + Email
 ```
 
 ---
 
-# 13. Checklist de validação do REPORT com IA
+## 🔐 Autenticações Necessárias
 
-Antes de considerar o fluxo estável:
-
-- [ ] Bot envia `action=report` para Zap 1.
-- [ ] Path REPORT é acionado corretamente.
-- [ ] Step 17 encontra `email` e `salary` na aba `users`.
-- [ ] Step 18 encontra transações pelo `user_id` na aba `transactions`.
-- [ ] Step 19 retorna `expense_total > 0` quando há gastos no mês.
-- [ ] Step 19 gera `mistral_body_json` válido.
-- [ ] Step 20 retorna `Choices Message Content` com texto da IA.
-- [ ] Step 21 usa `20. Choices Message Content` como input.
-- [ ] Step 21 retorna `email_subject`, `email_text` e `email_html`.
-- [ ] Step 22 envia e-mail com análise da IA, não fallback.
-- [ ] Campos de debug temporários foram removidos.
+| App | Auth ID | Função |
+|-----|---------|--------|
+| Google Sheets | 63698675 | Ler/escrever transações e usuários |
+| Telegram | 63698765 | Enviar mensagens ao usuário |
+| Mistral API | Header API Key | Análise de IA |
 
 ---
 
-# 14. Divisão correta de responsabilidades
+## 📈 Métricas Calculadas
 
-| Camada | Responsabilidade |
-|---|---|
-| Bot Telegram | Interface, menus, confirmação e disparo do report |
-| Zap 1 | Transações, delete, histórico legado e report com IA |
-| Zap 2 | Atualização de salário apenas |
-| Google Sheets | Persistência de `transactions` e `users` |
-| MistralAI | Geração do diagnóstico financeiro textual |
-
----
-
-# 15. Status atual
-
-| Área | Status |
-|---|---|
-| CREATE | Funcional |
-| READ | Funcional/legado |
-| DELETE | Funcional |
-| REPORT básico por e-mail | Substituído pelo REPORT com IA |
-| REPORT com MistralAI | Funcional após mapeamento correto |
-| Uso de `details` na análise | Implementado |
-| Fallback de e-mail | Implementado |
-| Zap 2 separado para salário | Mantido |
+| Métrica | Cálculo | Uso |
+|---------|---------|-----|
+| **expense_rate** | (despesas / salary) × 100 | Determina nível de comprometimento |
+| **balance** | salary + income - expenses | Saldo final do mês |
+| **category_totals** | Soma por categoria | Identifica maiores gastos |
+| **behavioral_signals** | Análise de padrões | Detecção de anomalias |
 
 ---
 
-# 16. Observações finais
+## ⚡ Otimizações Implementadas
 
-O REPORT com IA deve permanecer no Zap 1. O bot não deve fazer análise financeira avançada, apenas disparar o relatório.
+1. **Bypass para Telegram Bot**: Evita re-processamento de dados já normalizados
+2. **Filtros no início de cada branch**: Só executa passos relevantes
+3. **Cálculos em Python**: Processamento local (não requer múltiplos steps)
+4. **Markdown escape no Telegram**: Evita erros de renderização
+5. **Temperature 0.3 na IA**: Responses mais consistentes, menos criativas
 
-A robustez do fluxo depende principalmente de dois mapeamentos:
+---
 
-1. Step 18 → Step 19: transações por line-items separados.
-2. Step 20 → Step 21: `Choices Message Content` como texto da IA.
+## 🛠️ Troubleshooting
 
-Com esses dois pontos corretos, o relatório consegue cruzar salário, despesas, categorias, detalhes e padrões comportamentais sem sobrecarregar o bot Telegram.
+| Problema | Causa | Solução |
+|----------|-------|--------|
+| Transação não aparece | Ação != "create" | Verificar `action` no webhook |
+| Read retorna vazio | Usuário sem transações | Criar transação com CREATE |
+| Email não chega | Auth expirada | Reconectar Google Sheets |
+| Telegram não envia | Chat ID inválido | Verificar `chat_id` no params |
+| IA retorna erro | Payload muito grande | Reduzir `row_count` no lookup |
+
+---
+
+## 📝 Dados de Exemplo
+
+### Webhook Input para CREATE
+```json
+{
+  "action": "create",
+  "user_id": "7500965215",
+  "date": "2025-01-15",
+  "description": "Almoço no restaurante",
+  "amount": "45.50",
+  "category": "Alimentacao",
+  "type": "expense",
+  "details": "Restaurante próximo ao trabalho"
+}
+```
+
+### Webhook Input para READ
+```json
+{
+  "action": "read",
+  "user_id": "7500965215"
+}
+```
+
+### Webhook Input para DELETE
+```json
+{
+  "action": "delete",
+  "user_id": "7500965215",
+  "transaction_id": "tx_12345"
+}
+```
+
+### Webhook Input para REPORT
+```json
+{
+  "action": "report",
+  "user_id": "7500965215"
+}
+```
+
+---
+
+## 🎯 Conclusão
+
+Este Zap implementa um **sistema completo de gestão financeira pessoal** com:
+- ✅ CRUD (Create, Read, Update, Delete) de transações
+- ✅ Análise automática via IA
+- ✅ Detecção de padrões comportamentais
+- ✅ Relatórios por email personalizados
+- ✅ Integração com Telegram para consultas rápidas
+
+**Status:** 🟢 Publicado e ativo
