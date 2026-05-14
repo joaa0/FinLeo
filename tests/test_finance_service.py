@@ -53,6 +53,32 @@ class FinanceServiceTests(unittest.TestCase):
         self.assertEqual(summary.expense_total, Decimal("100.00"))
         self.assertEqual(summary.income_total, Decimal("250.00"))
         self.assertEqual(summary.balance, Decimal("3150.00"))
+        self.assertTrue(summary.insights)
+        self.assertIn("Seu ritmo de gastos", summary.insights[0])
+
+    def test_can_update_and_delete_latest_transaction(self) -> None:
+        with self.session_factory() as session:
+            user = User(telegram_user_id="123", email="test@example.com", monthly_salary=Decimal("3000.00"))
+            session.add(user)
+            session.flush()
+
+            expense = parse_transaction_text("gastei 100 no ifood")
+            assert expense is not None
+            transaction = self.repo.create(session, user, expense)
+            session.commit()
+
+            latest = self.repo.get_latest_for_user(session, user)
+            self.assertIsNotNone(latest)
+            assert latest is not None
+            self.assertEqual(latest.id, transaction.id)
+
+            updated = self.repo.update_amount_for_user(session, user, latest.id, Decimal("55.00"))
+            self.assertIsNotNone(updated)
+            assert updated is not None
+            self.assertEqual(updated.amount, Decimal("55.00"))
+
+            deleted = self.repo.delete_for_user(session, user, latest.id)
+            self.assertTrue(deleted)
 
 
 if __name__ == "__main__":

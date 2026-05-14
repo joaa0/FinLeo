@@ -11,20 +11,115 @@ from chamaleon.domain.types import IntentResult, TransactionDraft
 
 CATEGORY_MAP: dict[str, tuple[str, str]] = {
     "ifood": ("Alimentacao", "expense"),
+    "ubereats": ("Alimentacao", "expense"),
+    "uber eats": ("Alimentacao", "expense"),
     "rappi": ("Alimentacao", "expense"),
+    "aiqfome": ("Alimentacao", "expense"),
+    "delivery": ("Alimentacao", "expense"),
+    "padaria": ("Alimentacao", "expense"),
+    "restaurante": ("Alimentacao", "expense"),
+    "almoco": ("Alimentacao", "expense"),
+    "janta": ("Alimentacao", "expense"),
+    "jantar": ("Alimentacao", "expense"),
+    "cafe": ("Alimentacao", "expense"),
+    "cafeteria": ("Alimentacao", "expense"),
+    "lanche": ("Alimentacao", "expense"),
+    "lanchonete": ("Alimentacao", "expense"),
+    "hamburguer": ("Alimentacao", "expense"),
+    "hamburgueria": ("Alimentacao", "expense"),
+    "pizza": ("Alimentacao", "expense"),
+    "sushi": ("Alimentacao", "expense"),
+    "sorvete": ("Alimentacao", "expense"),
+    "acougue": ("Alimentacao", "expense"),
+    "mercadinho": ("Alimentacao", "expense"),
     "mercado": ("Compras", "expense"),
     "supermercado": ("Compras", "expense"),
+    "atacadao": ("Compras", "expense"),
+    "compra": ("Compras", "expense"),
+    "shopping": ("Compras", "expense"),
+    "roupa": ("Compras", "expense"),
+    "tenis": ("Compras", "expense"),
+    "presente": ("Compras", "expense"),
+    "eletronico": ("Compras", "expense"),
+    "amazon": ("Compras", "expense"),
+    "mercado livre": ("Compras", "expense"),
+    "shopee": ("Compras", "expense"),
     "uber": ("Transporte", "expense"),
     "99": ("Transporte", "expense"),
+    "taxi": ("Transporte", "expense"),
+    "corrida": ("Transporte", "expense"),
+    "combustivel": ("Transporte", "expense"),
     "gasolina": ("Transporte", "expense"),
+    "etanol": ("Transporte", "expense"),
+    "diesel": ("Transporte", "expense"),
+    "posto": ("Transporte", "expense"),
+    "pedagio": ("Transporte", "expense"),
+    "estacionamento": ("Transporte", "expense"),
+    "passagem": ("Transporte", "expense"),
+    "onibus": ("Transporte", "expense"),
+    "metro": ("Transporte", "expense"),
+    "trem": ("Transporte", "expense"),
+    "transporte": ("Transporte", "expense"),
+    "blablacar": ("Transporte", "expense"),
     "aluguel": ("Moradia", "expense"),
+    "condominio": ("Moradia", "expense"),
+    "luz": ("Moradia", "expense"),
+    "energia": ("Moradia", "expense"),
+    "agua": ("Moradia", "expense"),
+    "gas": ("Moradia", "expense"),
     "internet": ("Moradia", "expense"),
+    "wifi": ("Moradia", "expense"),
+    "telefone": ("Moradia", "expense"),
+    "celular": ("Moradia", "expense"),
+    "moradia": ("Moradia", "expense"),
+    "iptu": ("Moradia", "expense"),
+    "reparo": ("Moradia", "expense"),
+    "manutencao": ("Moradia", "expense"),
     "netflix": ("Entretenimento", "expense"),
     "spotify": ("Entretenimento", "expense"),
+    "primevideo": ("Entretenimento", "expense"),
+    "prime video": ("Entretenimento", "expense"),
+    "disney": ("Entretenimento", "expense"),
+    "max": ("Entretenimento", "expense"),
+    "hbo": ("Entretenimento", "expense"),
+    "cinema": ("Entretenimento", "expense"),
+    "show": ("Entretenimento", "expense"),
+    "festa": ("Entretenimento", "expense"),
+    "bar": ("Entretenimento", "expense"),
+    "balada": ("Entretenimento", "expense"),
+    "viagem": ("Entretenimento", "expense"),
+    "hotel": ("Entretenimento", "expense"),
+    "passeio": ("Entretenimento", "expense"),
+    "jogo": ("Entretenimento", "expense"),
+    "game": ("Entretenimento", "expense"),
+    "steam": ("Entretenimento", "expense"),
     "farmacia": ("Saude", "expense"),
     "dentista": ("Saude", "expense"),
+    "remedio": ("Saude", "expense"),
+    "remedios": ("Saude", "expense"),
+    "medicamento": ("Saude", "expense"),
+    "medicamentos": ("Saude", "expense"),
+    "consulta": ("Saude", "expense"),
+    "medico": ("Saude", "expense"),
+    "exame": ("Saude", "expense"),
+    "hospital": ("Saude", "expense"),
+    "clinica": ("Saude", "expense"),
+    "psicologo": ("Saude", "expense"),
+    "terapia": ("Saude", "expense"),
+    "vitamina": ("Saude", "expense"),
+    "plano de saude": ("Saude", "expense"),
+    "academia": ("Saude", "expense"),
     "curso": ("Educacao", "expense"),
     "livro": ("Educacao", "expense"),
+    "faculdade": ("Educacao", "expense"),
+    "mensalidade": ("Educacao", "expense"),
+    "escola": ("Educacao", "expense"),
+    "colegio": ("Educacao", "expense"),
+    "apostila": ("Educacao", "expense"),
+    "material escolar": ("Educacao", "expense"),
+    "certificacao": ("Educacao", "expense"),
+    "idioma": ("Educacao", "expense"),
+    "ingles": ("Educacao", "expense"),
     "freelance": ("Trabalho", "income"),
     "salario": ("Trabalho", "income"),
     "bonus": ("Trabalho", "income"),
@@ -32,20 +127,153 @@ CATEGORY_MAP: dict[str, tuple[str, str]] = {
     "cliente": ("Trabalho", "income"),
     "venda": ("Trabalho", "income"),
     "recebi": ("Trabalho", "income"),
+    "recebimento": ("Trabalho", "income"),
+    "ganhei": ("Trabalho", "income"),
+    "comissao": ("Trabalho", "income"),
+    "freela": ("Trabalho", "income"),
+    "pagamento": ("Trabalho", "income"),
+    "renda": ("Trabalho", "income"),
+    "trabalho": ("Trabalho", "income"),
+    "prolabore": ("Trabalho", "income"),
+    "pro labore": ("Trabalho", "income"),
+    "reembolso": ("Trabalho", "income"),
+    "cashback": ("Trabalho", "income"),
 }
 
-INCOME_VERBS = {"recebi", "ganhei", "entrou", "caiu", "vendi", "faturei"}
-EXPENSE_VERBS = {"gastei", "paguei", "comprei", "gasto", "debitei", "usei"}
-SUMMARY_PATTERNS = ("quanto sobrou", "quanto tenho", "meu saldo", "saldo do mes", "resumo do mes")
-HISTORY_PATTERNS = ("meu historico", "ultimas transacoes", "minhas transacoes", "historico")
-REPORT_PATTERNS = ("me manda meu relatorio", "envia meu relatorio", "quero meu relatorio", "relatorio")
-SALARY_PATTERNS = ("meu salario", "atualizar salario", "salario", "dinheiro")
+INCOME_VERBS = {
+    "recebi",
+    "ganhei",
+    "entrou",
+    "caiu",
+    "vendi",
+    "faturei",
+    "pingou",
+    "creditou",
+    "recebo",
+}
+EXPENSE_VERBS = {
+    "gastei",
+    "paguei",
+    "comprei",
+    "gasto",
+    "debitei",
+    "usei",
+    "assinei",
+    "abasteci",
+    "desembolsei",
+    "peguei",
+}
+SUMMARY_PATTERNS = (
+    "quanto sobrou",
+    "quanto tenho",
+    "meu saldo",
+    "saldo do mes",
+    "resumo do mes",
+    "quanto gastei",
+    "como esta meu mes",
+    "como ta meu mes",
+    "quanto ainda posso gastar",
+)
+HISTORY_PATTERNS = (
+    "meu historico",
+    "ultimas transacoes",
+    "minhas transacoes",
+    "historico",
+    "me mostra minhas transacoes",
+    "quais foram meus ultimos gastos",
+    "me mostra meu historico",
+)
+REPORT_PATTERNS = (
+    "me manda meu relatorio",
+    "envia meu relatorio",
+    "quero meu relatorio",
+    "relatorio",
+    "gera um relatorio",
+    "cria um relatorio",
+    "gera meu relatorio",
+)
+RECURRING_PATTERNS = (
+    "recorrencia",
+    "recorrência",
+    "recorrente",
+    "conta fixa",
+    "conta recorrente",
+    "gasto fixo",
+    "entrada fixa",
+    "assinatura mensal",
+)
+SALARY_PATTERNS = (
+    "meu salario",
+    "atualizar salario",
+    "salario",
+    "dinheiro",
+    "quero atualizar meu salario",
+    "trocar salario",
+    "mudar salario",
+)
+UNDO_PATTERNS = (
+    "desfaz",
+    "desfazer",
+    "desfaca",
+    "desfaça",
+    "apaga o ultimo",
+    "apagar o ultimo",
+    "remove o ultimo",
+    "exclui o ultimo",
+)
+EDIT_PATTERNS = (
+    "corrige o valor para",
+    "corrigir o valor para",
+    "altera o valor para",
+    "altera pra",
+    "ajusta para",
+    "muda para",
+)
+AMOUNT_PATTERN = re.compile(r"\d[\d\.,]*")
+NOISE_TOKENS = {
+    "ai",
+    "ainda",
+    "agora",
+    "apenas",
+    "foi",
+    "meu",
+    "minha",
+    "pro",
+    "pra",
+    "um",
+    "uma",
+    "uns",
+    "umas",
+}
+DESCRIPTION_FILLERS = {
+    *INCOME_VERBS,
+    *EXPENSE_VERBS,
+    "de",
+    "do",
+    "da",
+    "dos",
+    "das",
+    "no",
+    "na",
+    "nos",
+    "nas",
+    "com",
+    "por",
+    "pra",
+    "para",
+    "em",
+    "real",
+    "reais",
+    "rs",
+    "r",
+}
 
 
 def normalize_keyword(text: str) -> str:
     normalized = unicodedata.normalize("NFKD", text.lower())
     normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
     normalized = re.sub(r"[^a-z0-9\s,./|:-]", " ", normalized)
+    normalized = re.sub(r"(?<=\D)[\.,:;!?]+(?=\s|$)", " ", normalized)
     return re.sub(r"\s+", " ", normalized).strip()
 
 
@@ -65,23 +293,36 @@ def normalize_amount(raw: str) -> Decimal | None:
 
 def detect_category(text: str) -> tuple[str, str]:
     normalized = normalize_keyword(text)
+    normalized_words = set(normalized.split())
     compact = normalized.replace(" ", "")
     for keyword, category in CATEGORY_MAP.items():
         candidate = normalize_keyword(keyword)
-        if candidate in normalized or candidate.replace(" ", "") in compact:
+        if " " in candidate:
+            if candidate in normalized or candidate.replace(" ", "") in compact:
+                return category
+        elif candidate in normalized_words:
             return category
     return ("Outros", "expense")
 
 
 def _extract_amount(text: str) -> tuple[Decimal | None, str]:
-    match = re.search(r"(\d[\d\.,]*)", text)
+    match = AMOUNT_PATTERN.search(text)
     if not match:
         return None, text
-    amount = normalize_amount(match.group(1))
+    amount = normalize_amount(match.group(0))
     if amount is None:
         return None, text
     remaining = (text[: match.start()] + " " + text[match.end() :]).strip()
     return amount, re.sub(r"\s+", " ", remaining)
+
+
+def _extract_all_amounts(text: str) -> list[Decimal]:
+    amounts: list[Decimal] = []
+    for match in AMOUNT_PATTERN.finditer(text):
+        amount = normalize_amount(match.group(0))
+        if amount is not None:
+            amounts.append(amount)
+    return amounts
 
 
 def _extract_details(text: str) -> tuple[str, str]:
@@ -102,6 +343,21 @@ def _extract_relative_date(text: str) -> tuple[date, str]:
     return tx_date, normalized
 
 
+def _build_description(remaining: str) -> str:
+    description = remaining
+    for filler in DESCRIPTION_FILLERS:
+        description = re.sub(rf"\b{re.escape(filler)}\b", " ", description, flags=re.IGNORECASE)
+    description = re.sub(r"\s+", " ", description).strip(" -")
+
+    tokens = [token for token in normalize_keyword(description).split() if token not in NOISE_TOKENS]
+    deduped: list[str] = []
+    for token in tokens:
+        if not deduped or deduped[-1] != token:
+            deduped.append(token)
+
+    return " ".join(deduped).strip() or "transacao"
+
+
 def parse_transaction_text(text: str) -> TransactionDraft | None:
     cleaned = text.strip()
     if not cleaned:
@@ -112,21 +368,28 @@ def parse_transaction_text(text: str) -> TransactionDraft | None:
 
     main_text, details = _extract_details(cleaned)
     tx_date, normalized = _extract_relative_date(main_text)
+    all_amounts = _extract_all_amounts(normalized)
+    if len(all_amounts) != 1:
+        return None
+
+    normalized_words = set(normalize_keyword(normalized).split())
+    has_income_verb = any(word in normalized_words for word in INCOME_VERBS)
+    has_expense_verb = any(word in normalized_words for word in EXPENSE_VERBS)
+    if has_income_verb and has_expense_verb:
+        return None
+
     amount, remaining = _extract_amount(normalized)
     if amount is None:
         return None
 
     category, tx_type = detect_category(remaining)
     lowered = normalize_keyword(remaining)
-    if any(word in lowered.split() for word in INCOME_VERBS):
+    if has_income_verb or any(word in lowered.split() for word in INCOME_VERBS):
         tx_type = "income"
-    elif any(word in lowered.split() for word in EXPENSE_VERBS):
+    elif has_expense_verb or any(word in lowered.split() for word in EXPENSE_VERBS):
         tx_type = "expense"
 
-    description = remaining
-    for filler in list(INCOME_VERBS | EXPENSE_VERBS) + ["de", "do", "da", "no", "na", "com"]:
-        description = re.sub(rf"\b{re.escape(filler)}\b", " ", description, flags=re.IGNORECASE)
-    description = re.sub(r"\s+", " ", description).strip(" -") or "Transacao"
+    description = _build_description(remaining)
 
     confidence = 0.95 if category != "Outros" else 0.75
     if len(description.split()) == 1:
@@ -145,6 +408,24 @@ def parse_transaction_text(text: str) -> TransactionDraft | None:
 
 def detect_intent(text: str) -> IntentResult:
     normalized = normalize_keyword(text)
+    if any(pattern in normalized for pattern in UNDO_PATTERNS):
+        return IntentResult(intent="undo_last_transaction", confidence=0.92)
+    if any(pattern in normalized for pattern in EDIT_PATTERNS):
+        amount, _ = _extract_amount(normalized)
+        entities = {"amount": str(amount)} if amount is not None else {}
+        return IntentResult(intent="edit_last_transaction_amount", confidence=0.88, entities=entities)
+    if any(pattern in normalized for pattern in SUMMARY_PATTERNS):
+        return IntentResult(intent="show_summary", confidence=0.92)
+    if any(pattern in normalized for pattern in HISTORY_PATTERNS):
+        return IntentResult(intent="show_history", confidence=0.90)
+    if any(pattern in normalized for pattern in REPORT_PATTERNS):
+        return IntentResult(intent="request_report", confidence=0.90)
+    if any(pattern in normalized for pattern in RECURRING_PATTERNS):
+        return IntentResult(intent="manage_recurring", confidence=0.84)
+    if any(pattern in normalized for pattern in SALARY_PATTERNS):
+        amount, _ = _extract_amount(normalized)
+        entities = {"amount": str(amount)} if amount is not None else {}
+        return IntentResult(intent="update_salary", confidence=0.82, entities=entities)
     draft = parse_transaction_text(text)
     if draft:
         return IntentResult(
@@ -153,16 +434,6 @@ def detect_intent(text: str) -> IntentResult:
             entities={"category": draft.category, "type": draft.transaction_type},
             draft=draft,
         )
-    if any(pattern in normalized for pattern in SUMMARY_PATTERNS):
-        return IntentResult(intent="show_summary", confidence=0.92)
-    if any(pattern in normalized for pattern in HISTORY_PATTERNS):
-        return IntentResult(intent="show_history", confidence=0.90)
-    if any(pattern in normalized for pattern in REPORT_PATTERNS):
-        return IntentResult(intent="request_report", confidence=0.90)
-    if any(pattern in normalized for pattern in SALARY_PATTERNS):
-        amount, _ = _extract_amount(normalized)
-        entities = {"amount": str(amount)} if amount is not None else {}
-        return IntentResult(intent="update_salary", confidence=0.82, entities=entities)
     if normalized in {"ajuda", "menu", "comandos", "opcoes", "opções"}:
         return IntentResult(intent="help", confidence=0.99)
     return IntentResult(intent="unknown", confidence=0.0)

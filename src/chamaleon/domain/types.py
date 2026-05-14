@@ -32,6 +32,7 @@ class MonthlySummary:
     expense_total: Decimal
     balance: Decimal
     top_categories: list[tuple[str, Decimal]]
+    insights: list[str]
 
 
 @dataclass(frozen=True)

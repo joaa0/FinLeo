@@ -35,6 +35,19 @@ class TransactionRepository:
         )
         return list(session.scalars(stmt))
 
+    def get_by_id_for_user(self, session: Session, user: User, transaction_id: int) -> Transaction | None:
+        stmt = select(Transaction).where(Transaction.user_id == user.id, Transaction.id == transaction_id)
+        return session.scalar(stmt)
+
+    def get_latest_for_user(self, session: Session, user: User) -> Transaction | None:
+        stmt = (
+            select(Transaction)
+            .where(Transaction.user_id == user.id)
+            .order_by(Transaction.created_at.desc(), Transaction.id.desc())
+            .limit(1)
+        )
+        return session.scalar(stmt)
+
     def count_for_user(self, session: Session, user: User) -> int:
         stmt = select(func.count(Transaction.id)).where(Transaction.user_id == user.id)
         return int(session.scalar(stmt) or 0)
@@ -43,6 +56,14 @@ class TransactionRepository:
         stmt = delete(Transaction).where(Transaction.user_id == user.id, Transaction.id == transaction_id)
         result = session.execute(stmt)
         return result.rowcount > 0
+
+    def update_amount_for_user(self, session: Session, user: User, transaction_id: int, amount: Decimal) -> Transaction | None:
+        transaction = self.get_by_id_for_user(session, user, transaction_id)
+        if transaction is None:
+            return None
+        transaction.amount = amount
+        session.flush()
+        return transaction
 
     def monthly_category_totals(self, session: Session, user: User, start_date: date, end_date: date) -> list[tuple[str, Decimal]]:
         stmt = (

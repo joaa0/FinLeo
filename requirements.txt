@@ -1,6 +1,8 @@
 python-telegram-bot==21.1
+APScheduler==3.10.4
 requests==2.31.0
 python-dotenv==1.0.0
 SQLAlchemy==2.0.36
 alembic==1.14.0
 psycopg[binary]==3.2.3
+mistralai==1.9.3

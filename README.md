@@ -70,6 +70,49 @@ mensagem
 -> persistencia em transactions
 ```
 
+### Registro por audio
+
+O bot agora tambem aceita `voice note` e arquivos de audio no Telegram.
+
+Fluxo:
+
+```text
+audio
+-> download temporario do arquivo
+-> transcricao via Mistral
+-> parser de movimentacao
+-> confirmacao
+-> persistencia em transactions
+```
+
+### Recorrencias e lembretes
+
+O bot agora tambem cobre contas fixas, assinaturas e entradas recorrentes.
+
+Fluxo:
+
+```text
+/recorrencias ou botao "Recorrencias"
+-> cadastro guiado de descricao
+-> valor
+-> dia do mes
+-> persistencia em recurring_rules
+-> lembrete automatico perto do vencimento
+```
+
+Gestao atual da recorrencia:
+
+- criar pelo chat;
+- editar nome, valor e dia do mes;
+- pausar e reativar;
+- excluir pelo proprio Telegram.
+
+Tambem existe um lembrete diario de uso:
+
+- apenas uma mensagem por dia por usuario;
+- horario aleatorio atribuido ao usuario dentro da faixa configurada;
+- objetivo pratico: lembrar de registrar gastos, entradas ou revisar o mes.
+
 ### Resumo do mes
 
 ```text
@@ -84,7 +127,8 @@ O resumo considera:
 - entradas do mes;
 - gastos do mes;
 - saldo calculado;
-- categorias com maior peso.
+- categorias com maior peso;
+- insights mensais curtos com leitura do ritmo de gastos, categoria dominante e folego estimado.
 
 ### Relatorio por email
 
@@ -110,6 +154,7 @@ Tabelas iniciais:
 - `users`
 - `transactions`
 - `generated_reports`
+- `recurring_rules`
 
 Migração inicial: [alembic/versions/20260514_0001_initial_schema.py](/home/jj/ChamaLeon-main/alembic/versions/20260514_0001_initial_schema.py)
 
@@ -124,6 +169,11 @@ DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/chamaleon
 MISTRAL_API_KEY=
 OPENAI_MODEL=mistral-small-latest
 OPENAI_BASE_URL=https://api.mistral.ai/v1
+MISTRAL_TRANSCRIPTION_MODEL=voxtral-mini-latest
+MISTRAL_TRANSCRIPTION_LANGUAGE=pt
+REMINDER_CHECK_INTERVAL_MINUTES=15
+DAILY_NUDGE_START_HOUR=8
+DAILY_NUDGE_END_HOUR=20
 
 SMTP_HOST=
 SMTP_PORT=587
@@ -165,6 +215,7 @@ O `Procfile` continua usando esse entrypoint para preservar compatibilidade de d
 - `/salario`
 - `/dinheiro`
 - `/relatorio`
+- `/recorrencias`
 
 ## Lacunas e problemas atuais
 
@@ -173,4 +224,6 @@ O `Procfile` continua usando esse entrypoint para preservar compatibilidade de d
 - o relatorio usa fallback deterministico quando `MISTRAL_API_KEY` ou `OPENAI_API_KEY` nao esta configurada;
 - o envio por email depende de SMTP valido; se a configuracao faltar, o relatorio pode ser gerado mas nao entregue;
 - o estado conversacional continua em `context.user_data`, entao um restart pode interromper fluxos em andamento;
+- recorrencias hoje ja contam com gestao basica no chat, mas ainda nao oferecem ajuste de lembrete ou automacao de lancamento real;
+- os lembretes dependem do processo do bot estar rodando; se o polling ficar offline, a entrega daquele horario pode ser perdida;
 - o runtime cria schema automaticamente por default para facilitar bootstrap local, mas o fluxo recomendado em producao continua sendo Alembic.

@@ -24,6 +24,8 @@ class Settings:
     openai_api_key: str | None = None
     openai_model: str = "mistral-small-latest"
     openai_base_url: str = "https://api.mistral.ai/v1"
+    mistral_transcription_model: str = "voxtral-mini-latest"
+    mistral_transcription_language: str = "pt"
     smtp_host: str | None = None
     smtp_port: int = 587
     smtp_username: str | None = None
@@ -33,6 +35,9 @@ class Settings:
     report_email_subject: str = "Seu relatorio financeiro ChamaLeon"
     cache_ttl_seconds: int = 60
     auto_create_schema: bool = True
+    reminder_check_interval_minutes: int = 15
+    daily_nudge_start_hour: int = 8
+    daily_nudge_end_hour: int = 20
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -45,6 +50,9 @@ class Settings:
 
         smtp_port_raw = os.getenv("SMTP_PORT", "587").strip() or "587"
         cache_ttl_raw = os.getenv("CACHE_TTL_SECONDS", "60").strip() or "60"
+        reminder_check_interval_raw = os.getenv("REMINDER_CHECK_INTERVAL_MINUTES", "15").strip() or "15"
+        nudge_start_raw = os.getenv("DAILY_NUDGE_START_HOUR", "8").strip() or "8"
+        nudge_end_raw = os.getenv("DAILY_NUDGE_END_HOUR", "20").strip() or "20"
         return cls(
             telegram_bot_token=token,
             database_url=database_url,
@@ -53,6 +61,8 @@ class Settings:
             openai_api_key=os.getenv("MISTRAL_API_KEY") or os.getenv("OPENAI_API_KEY") or None,
             openai_model=os.getenv("OPENAI_MODEL", "mistral-small-latest").strip() or "mistral-small-latest",
             openai_base_url=os.getenv("OPENAI_BASE_URL", "https://api.mistral.ai/v1").strip() or "https://api.mistral.ai/v1",
+            mistral_transcription_model=os.getenv("MISTRAL_TRANSCRIPTION_MODEL", "voxtral-mini-latest").strip() or "voxtral-mini-latest",
+            mistral_transcription_language=os.getenv("MISTRAL_TRANSCRIPTION_LANGUAGE", "pt").strip() or "pt",
             smtp_host=os.getenv("SMTP_HOST") or None,
             smtp_port=int(smtp_port_raw),
             smtp_username=os.getenv("SMTP_USERNAME") or None,
@@ -62,4 +72,7 @@ class Settings:
             report_email_subject=os.getenv("REPORT_EMAIL_SUBJECT", "Seu relatorio financeiro ChamaLeon"),
             cache_ttl_seconds=int(cache_ttl_raw),
             auto_create_schema=_as_bool(os.getenv("AUTO_CREATE_SCHEMA"), True),
+            reminder_check_interval_minutes=int(reminder_check_interval_raw),
+            daily_nudge_start_hour=int(nudge_start_raw),
+            daily_nudge_end_hour=int(nudge_end_raw),
         )
