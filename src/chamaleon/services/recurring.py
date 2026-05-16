@@ -1,22 +1,29 @@
 from __future__ import annotations
 
 from calendar import monthrange
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from chamaleon.infra.models import RecurringRule, User
+
+WEEKDAY_LABELS = {
+    0: "segunda",
+    1: "terca",
+    2: "quarta",
+    3: "quinta",
+    4: "sexta",
+    5: "sabado",
+    6: "domingo",
+}
 
 
 class RecurringService:
     def reminder_due(self, rule: RecurringRule, today: date) -> bool:
-        last_day = monthrange(today.year, today.month)[1]
-        due_day = min(rule.day_of_month, last_day)
-        reminder_day = max(1, due_day - rule.reminder_days_before)
-        period_label = today.strftime("%Y-%m")
-        return (
-            today.day == reminder_day
-            and rule.last_reminder_period != period_label
-            and rule.enabled
-        )
+        occurrence_date = self._next_occurrence_on_or_after(rule, today)
+        if occurrence_date is None:
+            return False
+        reminder_date = occurrence_date - timedelta(days=rule.reminder_days_before)
+        reminder_key = occurrence_date.isoformat()
+        return today == reminder_date and rule.last_reminder_period != reminder_key and rule.enabled
 
     def build_reminder_text(self, rule: RecurringRule) -> str:
         return (
@@ -24,7 +31,7 @@ class RecurringService:
             f"Em breve vence este lançamento recorrente:\n"
             f"• {rule.description}\n"
             f"• Valor: R$ {rule.amount:.2f}".replace(".", ",")
-            + f"\n• Dia previsto: {rule.day_of_month:02d}\n\n"
+            + f"\n• Frequência: {self.describe_schedule(rule)}\n\n"
             "Se quiser, você já pode se planejar com base nisso."
         )
 
@@ -44,3 +51,43 @@ class RecurringService:
             "• recebi 500 de freelance\n"
             "• quanto ainda posso gastar esse mês?"
         )
+
+    def describe_schedule(self, rule: RecurringRule) -> str:
+        if rule.frequency == "weekly":
+            return f"toda {WEEKDAY_LABELS.get(rule.weekday or 0, 'semana')}"
+        if rule.frequency == "biweekly":
+            return f"a cada 2 semanas na {WEEKDAY_LABELS.get(rule.weekday or 0, 'semana')}"
+        day = rule.day_of_month or 1
+        return f"todo dia {day:02d}"
+
+    def next_schedule_start(self, frequency: str, weekday: int | None, today: date | None = None) -> date | None:
+        if frequency not in {"weekly", "biweekly"} or weekday is None:
+            return None
+        reference = today or date.today()
+        delta = (weekday - reference.weekday()) % 7
+        return reference + timedelta(days=delta)
+
+    def _next_occurrence_on_or_after(self, rule: RecurringRule, reference: date) -> date | None:
+        if rule.frequency == "weekly":
+            weekday = rule.weekday if rule.weekday is not None else 0
+            delta = (weekday - reference.weekday()) % 7
+            return reference + timedelta(days=delta)
+
+        if rule.frequency == "biweekly":
+            weekday = rule.weekday if rule.weekday is not None else 0
+            anchor = rule.start_date or self.next_schedule_start("biweekly", weekday, reference)
+            if anchor is None:
+                return None
+            aligned_anchor = anchor + timedelta(days=(weekday - anchor.weekday()) % 7)
+            if reference <= aligned_anchor:
+                return aligned_anchor
+            days_since = (reference - aligned_anchor).days
+            step_count = days_since // 14
+            candidate = aligned_anchor + timedelta(days=step_count * 14)
+            if candidate < reference:
+                candidate += timedelta(days=14)
+            return candidate
+
+        last_day = monthrange(reference.year, reference.month)[1]
+        due_day = min(rule.day_of_month or 1, last_day)
+        return date(reference.year, reference.month, due_day)

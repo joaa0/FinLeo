@@ -27,6 +27,10 @@ class UserRepository:
         stmt = select(User).where(User.daily_nudge_enabled.is_(True))
         return list(session.scalars(stmt))
 
+    def list_all(self, session: Session) -> list[User]:
+        stmt = select(User)
+        return list(session.scalars(stmt))
+
     def create_or_update(self, session: Session, telegram_user_id: str, email: str, monthly_salary: Decimal) -> User:
         user = self.get_by_telegram_id(session, telegram_user_id)
         if user is None:
@@ -57,3 +61,19 @@ class UserRepository:
     def mark_nudge_sent(self, session: Session, user: User, sent_on) -> None:
         user.last_nudge_sent_on = sent_on
         session.flush()
+
+    def set_daily_nudge_enabled(self, session: Session, user: User, enabled: bool) -> User:
+        user.daily_nudge_enabled = enabled
+        session.flush()
+        return user
+
+    def mark_weekly_closure_sent(self, session: Session, user: User, period_label: str) -> None:
+        user.last_weekly_closure_sent_for = period_label
+        session.flush()
+
+    def reroll_nudge_slot(self, session: Session, user: User) -> User:
+        hour, minute = self._random_nudge_slot()
+        user.nudge_hour = hour
+        user.nudge_minute = minute
+        session.flush()
+        return user

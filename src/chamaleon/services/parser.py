@@ -6,7 +6,7 @@ from dataclasses import asdict
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 
-from chamaleon.domain.types import IntentResult, TransactionDraft
+from chamaleon.domain.types import IntentResult, TransactionDraft, TransactionParseResult
 
 
 CATEGORY_MAP: dict[str, tuple[str, str]] = {
@@ -139,6 +139,7 @@ CATEGORY_MAP: dict[str, tuple[str, str]] = {
     "reembolso": ("Trabalho", "income"),
     "cashback": ("Trabalho", "income"),
 }
+CATEGORY_NAMES = tuple(sorted({value[0] for value in CATEGORY_MAP.values()} | {"Outros"}))
 
 INCOME_VERBS = {
     "recebi",
@@ -163,6 +164,7 @@ EXPENSE_VERBS = {
     "desembolsei",
     "peguei",
 }
+TRANSACTION_VERBS = tuple(sorted(INCOME_VERBS | EXPENSE_VERBS, key=len, reverse=True))
 SUMMARY_PATTERNS = (
     "quanto sobrou",
     "quanto tenho",
@@ -191,6 +193,15 @@ REPORT_PATTERNS = (
     "gera um relatorio",
     "cria um relatorio",
     "gera meu relatorio",
+)
+BUDGET_PATTERNS = (
+    "orcamento",
+    "orçamento",
+    "meus orcamentos",
+    "meus orçamentos",
+    "limite por categoria",
+    "meta por categoria",
+    "gastos por categoria",
 )
 RECURRING_PATTERNS = (
     "recorrencia",
@@ -267,6 +278,30 @@ DESCRIPTION_FILLERS = {
     "rs",
     "r",
 }
+APPROXIMATION_HINTS = (
+    "acho que",
+    "mais ou menos",
+    "mais ou menos",
+    "uns",
+    "umas",
+    "aprox",
+    "aproximadamente",
+    "quase",
+    "e pouco",
+    "por volta de",
+)
+AMBIGUOUS_DATE_HINTS = (
+    "anteontem",
+    "semana passada",
+    "mes passado",
+    "mês passado",
+    "esses dias",
+    "outro dia",
+)
+MULTI_SPLIT_PATTERN = re.compile(
+    rf"(?:\s+e\s+|,\s*|;\s*)(?=(?:{'|'.join(re.escape(verb) for verb in TRANSACTION_VERBS)})\b)",
+    flags=re.IGNORECASE,
+)
 
 
 def normalize_keyword(text: str) -> str:
@@ -343,6 +378,43 @@ def _extract_relative_date(text: str) -> tuple[date, str]:
     return tx_date, normalized
 
 
+def _has_approximation_language(text: str) -> bool:
+    normalized = normalize_keyword(text)
+    return any(hint in normalized for hint in APPROXIMATION_HINTS)
+
+
+def _has_ambiguous_date_language(text: str) -> bool:
+    normalized = normalize_keyword(text)
+    return any(hint in normalized for hint in AMBIGUOUS_DATE_HINTS)
+
+
+def _compute_confidence(
+    source_text: str,
+    description: str,
+    category: str,
+    transaction_type: str,
+    amount_count: int,
+) -> float:
+    confidence = 0.45
+    if amount_count == 1:
+        confidence += 0.22
+    if category != "Outros":
+        confidence += 0.14
+    else:
+        confidence -= 0.08
+    if transaction_type in {"income", "expense"}:
+        confidence += 0.08
+    if description != "transacao":
+        confidence += 0.06
+    if len(description.split()) <= 4:
+        confidence += 0.03
+    if _has_approximation_language(source_text):
+        confidence -= 0.22
+    if _has_ambiguous_date_language(source_text):
+        confidence -= 0.12
+    return max(0.0, min(confidence, 0.99))
+
+
 def _build_description(remaining: str) -> str:
     description = remaining
     for filler in DESCRIPTION_FILLERS:
@@ -391,9 +463,13 @@ def parse_transaction_text(text: str) -> TransactionDraft | None:
 
     description = _build_description(remaining)
 
-    confidence = 0.95 if category != "Outros" else 0.75
-    if len(description.split()) == 1:
-        confidence += 0.02
+    confidence = _compute_confidence(
+        source_text=text,
+        description=description,
+        category=category,
+        transaction_type=tx_type,
+        amount_count=len(all_amounts),
+    )
     return TransactionDraft(
         description=description[:80],
         amount=amount,
@@ -403,6 +479,87 @@ def parse_transaction_text(text: str) -> TransactionDraft | None:
         details=details,
         confidence=min(confidence, 0.99),
         raw_text=text,
+    )
+
+
+def parse_multiple_transaction_texts(text: str, max_items: int = 3) -> list[TransactionDraft]:
+    cleaned = text.strip()
+    if not cleaned:
+        return []
+
+    parts = [part.strip(" ,;") for part in MULTI_SPLIT_PATTERN.split(cleaned) if part.strip(" ,;")]
+    if len(parts) < 2 or len(parts) > max_items:
+        return []
+
+    drafts: list[TransactionDraft] = []
+    for part in parts:
+        draft = parse_transaction_text(part)
+        if draft is None:
+            return []
+        drafts.append(draft)
+    return drafts
+
+
+def parse_transaction_candidate(text: str, ai_threshold: float = 0.80) -> TransactionParseResult:
+    cleaned = text.strip()
+    if not cleaned:
+        return TransactionParseResult(confidence=0.0, reasons=["empty"])
+
+    multiple_drafts = parse_multiple_transaction_texts(cleaned)
+    if multiple_drafts:
+        average_confidence = sum(draft.confidence for draft in multiple_drafts) / len(multiple_drafts)
+        complex_multi = len(_extract_all_amounts(cleaned)) > len(multiple_drafts)
+        should_use_ai = average_confidence < ai_threshold or complex_multi or _has_ambiguous_date_language(cleaned)
+        reasons = []
+        if average_confidence < ai_threshold:
+            reasons.append("low_confidence_multi")
+        if complex_multi:
+            reasons.append("multiple_values_competing")
+        if _has_ambiguous_date_language(cleaned):
+            reasons.append("ambiguous_date")
+        return TransactionParseResult(
+            confidence=round(average_confidence, 2),
+            drafts=multiple_drafts,
+            should_use_ai_fallback=should_use_ai,
+            reasons=reasons,
+        )
+
+    draft = parse_transaction_text(cleaned)
+    if draft is not None:
+        reasons: list[str] = []
+        should_use_ai = False
+        if draft.confidence < ai_threshold:
+            should_use_ai = True
+            reasons.append("low_confidence_single")
+        if _has_ambiguous_date_language(cleaned):
+            should_use_ai = True
+            reasons.append("ambiguous_date")
+        return TransactionParseResult(
+            confidence=round(draft.confidence, 2),
+            draft=draft,
+            should_use_ai_fallback=should_use_ai,
+            reasons=reasons,
+        )
+
+    normalized = normalize_keyword(cleaned)
+    amount_count = len(_extract_all_amounts(normalized))
+    normalized_words = set(normalized.split())
+    has_income_verb = any(word in normalized_words for word in INCOME_VERBS)
+    has_expense_verb = any(word in normalized_words for word in EXPENSE_VERBS)
+    likely_financial = amount_count > 0 or has_income_verb or has_expense_verb or detect_category(normalized)[0] != "Outros"
+    reasons: list[str] = []
+    if amount_count > 1:
+        reasons.append("multiple_values")
+    if has_income_verb and has_expense_verb:
+        reasons.append("mixed_income_and_expense")
+    if _has_ambiguous_date_language(cleaned):
+        reasons.append("ambiguous_date")
+    if _has_approximation_language(cleaned):
+        reasons.append("approximate_amount")
+    return TransactionParseResult(
+        confidence=0.25 if likely_financial else 0.0,
+        should_use_ai_fallback=likely_financial,
+        reasons=reasons or ["heuristic_parse_failed"],
     )
 
 
@@ -420,6 +577,8 @@ def detect_intent(text: str) -> IntentResult:
         return IntentResult(intent="show_history", confidence=0.90)
     if any(pattern in normalized for pattern in REPORT_PATTERNS):
         return IntentResult(intent="request_report", confidence=0.90)
+    if any(pattern in normalized for pattern in BUDGET_PATTERNS):
+        return IntentResult(intent="manage_budgets", confidence=0.86)
     if any(pattern in normalized for pattern in RECURRING_PATTERNS):
         return IntentResult(intent="manage_recurring", confidence=0.84)
     if any(pattern in normalized for pattern in SALARY_PATTERNS):
@@ -433,6 +592,7 @@ def detect_intent(text: str) -> IntentResult:
             confidence=draft.confidence,
             entities={"category": draft.category, "type": draft.transaction_type},
             draft=draft,
+            needs_confirmation=True,
         )
     if normalized in {"ajuda", "menu", "comandos", "opcoes", "opções"}:
         return IntentResult(intent="help", confidence=0.99)

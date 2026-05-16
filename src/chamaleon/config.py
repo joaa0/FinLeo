@@ -38,6 +38,8 @@ class Settings:
     reminder_check_interval_minutes: int = 15
     daily_nudge_start_hour: int = 8
     daily_nudge_end_hour: int = 20
+    parser_ai_confidence_threshold: float = 0.80
+    weekly_closure_hour: int = 9
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -53,6 +55,8 @@ class Settings:
         reminder_check_interval_raw = os.getenv("REMINDER_CHECK_INTERVAL_MINUTES", "15").strip() or "15"
         nudge_start_raw = os.getenv("DAILY_NUDGE_START_HOUR", "8").strip() or "8"
         nudge_end_raw = os.getenv("DAILY_NUDGE_END_HOUR", "20").strip() or "20"
+        parser_ai_threshold_raw = os.getenv("PARSER_AI_CONFIDENCE_THRESHOLD", "0.80").strip() or "0.80"
+        weekly_closure_hour_raw = os.getenv("WEEKLY_CLOSURE_HOUR", "9").strip() or "9"
         return cls(
             telegram_bot_token=token,
             database_url=database_url,
@@ -75,4 +79,6 @@ class Settings:
             reminder_check_interval_minutes=int(reminder_check_interval_raw),
             daily_nudge_start_hour=int(nudge_start_raw),
             daily_nudge_end_hour=int(nudge_end_raw),
+            parser_ai_confidence_threshold=float(parser_ai_threshold_raw),
+            weekly_closure_hour=int(weekly_closure_hour_raw),
         )

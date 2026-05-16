@@ -97,3 +97,33 @@ class TransactionRepository:
             elif tx_type == "expense":
                 expense = total or Decimal("0.00")
         return income, expense
+
+    def monthly_spent_for_category(self, session: Session, user: User, category: str, start_date: date, end_date: date) -> Decimal:
+        stmt = (
+            select(func.sum(Transaction.amount))
+            .where(
+                Transaction.user_id == user.id,
+                Transaction.transaction_type == "expense",
+                Transaction.category == category,
+                Transaction.transaction_date >= start_date,
+                Transaction.transaction_date <= end_date,
+            )
+        )
+        return Decimal(session.scalar(stmt) or Decimal("0.00"))
+
+    def totals_for_period(self, session: Session, user: User, start_date: date, end_date: date) -> tuple[Decimal, Decimal]:
+        return self.monthly_totals(session, user, start_date, end_date)
+
+    def category_totals_for_period(self, session: Session, user: User, start_date: date, end_date: date) -> list[tuple[str, Decimal]]:
+        stmt = (
+            select(Transaction.category, func.sum(Transaction.amount))
+            .where(
+                Transaction.user_id == user.id,
+                Transaction.transaction_type == "expense",
+                Transaction.transaction_date >= start_date,
+                Transaction.transaction_date <= end_date,
+            )
+            .group_by(Transaction.category)
+            .order_by(func.sum(Transaction.amount).desc())
+        )
+        return [(category, total) for category, total in session.execute(stmt).all()]

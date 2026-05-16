@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from datetime import date
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from chamaleon.infra.models import RecurringRule, User
+
+_UNSET = object()
 
 
 class RecurringRuleRepository:
@@ -15,7 +19,10 @@ class RecurringRuleRepository:
         category: str,
         transaction_type: str,
         amount,
-        day_of_month: int,
+        day_of_month: int | None,
+        frequency: str = "monthly",
+        weekday: int | None = None,
+        start_date: date | None = None,
         reminder_days_before: int = 1,
     ) -> RecurringRule:
         rule = RecurringRule(
@@ -24,7 +31,10 @@ class RecurringRuleRepository:
             category=category,
             transaction_type=transaction_type,
             amount=amount,
+            frequency=frequency,
             day_of_month=day_of_month,
+            weekday=weekday,
+            start_date=start_date,
             reminder_days_before=reminder_days_before,
         )
         session.add(rule)
@@ -53,7 +63,11 @@ class RecurringRuleRepository:
         category: str | None = None,
         transaction_type: str | None = None,
         amount=None,
-        day_of_month: int | None = None,
+        frequency: str | None = None,
+        day_of_month: int | None | object = _UNSET,
+        weekday: int | None | object = _UNSET,
+        start_date: date | None | object = _UNSET,
+        reminder_days_before: int | None = None,
     ) -> RecurringRule | None:
         rule = self.get_by_id_for_user(session, user, rule_id)
         if rule is None:
@@ -66,8 +80,16 @@ class RecurringRuleRepository:
             rule.transaction_type = transaction_type
         if amount is not None:
             rule.amount = amount
-        if day_of_month is not None:
+        if frequency is not None:
+            rule.frequency = frequency
+        if day_of_month is not _UNSET:
             rule.day_of_month = day_of_month
+        if weekday is not _UNSET:
+            rule.weekday = weekday
+        if start_date is not _UNSET:
+            rule.start_date = start_date
+        if reminder_days_before is not None:
+            rule.reminder_days_before = reminder_days_before
         session.flush()
         return rule
 

@@ -22,12 +22,14 @@ class User(Base):
     nudge_hour: Mapped[int] = mapped_column(default=10)
     nudge_minute: Mapped[int] = mapped_column(default=0)
     last_nudge_sent_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    last_weekly_closure_sent_for: Mapped[str | None] = mapped_column(String(16), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     transactions: Mapped[list["Transaction"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     reports: Mapped[list["GeneratedReport"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     recurring_rules: Mapped[list["RecurringRule"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    category_budgets: Mapped[list["CategoryBudget"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 
 class Transaction(Base):
@@ -72,7 +74,10 @@ class RecurringRule(Base):
     category: Mapped[str] = mapped_column(String(64))
     transaction_type: Mapped[str] = mapped_column(String(16))
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
-    day_of_month: Mapped[int] = mapped_column()
+    frequency: Mapped[str] = mapped_column(String(16), default="monthly")
+    day_of_month: Mapped[int | None] = mapped_column(nullable=True)
+    weekday: Mapped[int | None] = mapped_column(nullable=True)
+    start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     reminder_days_before: Mapped[int] = mapped_column(default=1)
     enabled: Mapped[bool] = mapped_column(default=True)
     last_reminder_period: Mapped[str | None] = mapped_column(String(16), nullable=True)
@@ -80,3 +85,17 @@ class RecurringRule(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     user: Mapped[User] = relationship(back_populates="recurring_rules")
+
+
+class CategoryBudget(Base):
+    __tablename__ = "category_budgets"
+    __table_args__ = (UniqueConstraint("user_id", "category", name="uq_category_budgets_user_category"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    category: Mapped[str] = mapped_column(String(64))
+    monthly_limit: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    user: Mapped[User] = relationship(back_populates="category_budgets")

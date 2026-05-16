@@ -11,7 +11,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from chamaleon.services.parser import detect_intent, parse_transaction_text
+from chamaleon.services.parser import detect_intent, parse_multiple_transaction_texts, parse_transaction_candidate, parse_transaction_text
 
 
 class ParserTests(unittest.TestCase):
@@ -238,6 +238,42 @@ class ParserTests(unittest.TestCase):
     def test_detects_recurring_management_intent(self) -> None:
         intent = detect_intent("quero ver minhas recorrências")
         self.assertEqual(intent.intent, "manage_recurring")
+
+    def test_detects_budget_management_intent(self) -> None:
+        intent = detect_intent("quero ver meus orçamentos")
+        self.assertEqual(intent.intent, "manage_budgets")
+
+    def test_high_confidence_single_transaction_stays_local(self) -> None:
+        result = parse_transaction_candidate("gastei 39 no ifood")
+        self.assertIsNotNone(result.draft)
+        self.assertFalse(result.should_use_ai_fallback)
+        self.assertGreaterEqual(result.confidence, 0.80)
+
+    def test_ambiguous_transaction_requests_ai_fallback(self) -> None:
+        result = parse_transaction_candidate("acho que gastei uns 50 e pouco no mercado ontem")
+        self.assertTrue(result.should_use_ai_fallback)
+        self.assertGreater(result.confidence, 0.0)
+
+    def test_complex_multiple_transactions_request_ai_fallback(self) -> None:
+        result = parse_transaction_candidate("ontem fui no mercado deu 87 e depois peguei uber de 22")
+        self.assertTrue(result.should_use_ai_fallback)
+
+    def test_parses_two_transactions_split_by_e(self) -> None:
+        drafts = parse_multiple_transaction_texts("recebi 3500 de salário e gastei 42 no uber")
+        self.assertEqual(len(drafts), 2)
+        self.assertEqual(drafts[0].transaction_type, "income")
+        self.assertEqual(drafts[1].transaction_type, "expense")
+        self.assertEqual(drafts[1].category, "Transporte")
+
+    def test_parses_two_transactions_split_by_comma(self) -> None:
+        drafts = parse_multiple_transaction_texts("paguei 90 na farmácia, paguei 20 no café")
+        self.assertEqual(len(drafts), 2)
+        self.assertEqual(drafts[0].category, "Saude")
+        self.assertEqual(drafts[1].category, "Alimentacao")
+
+    def test_rejects_ambiguous_multiple_transaction_text(self) -> None:
+        drafts = parse_multiple_transaction_texts("gastei 30 no uber e 20 no ifood")
+        self.assertEqual(drafts, [])
 
 
 if __name__ == "__main__":
